@@ -1,0 +1,117 @@
+{
+  "app": {
+    "name": "Pang Pang SmartOps AI"
+  },
+  "nav": {
+    "dashboard": "Tổng quan",
+    "frontOfHouse": "Khu vực phục vụ",
+    "backOfHouse": "Khu vực bếp",
+    "guestEngagement": "Khách hàng",
+    "insights": "Phân tích & Đề xuất",
+    "settings": "Cài đặt"
+  },
+  "common": {
+    "loading": "Đang tải...",
+    "error": "Đã xảy ra lỗi",
+    "save": "Lưu",
+    "cancel": "Hủy"
+  },
+  "auth": {
+    "login": "Đăng nhập",
+    "logout": "Đăng xuất",
+    "email": "Email",
+    "password": "Mật khẩu"
+  },
+  "settings": {
+    "language": "Ngôn ngữ",
+    "role": "Vai trò"
+  },
+  "dashboard": {
+    "todayRevenue": "Doanh thu hôm nay",
+    "covers": "Số lượt khách",
+    "avgTicket": "Hóa đơn trung bình",
+    "tableOccupancy": "Tình trạng bàn",
+    "tablesOccupied": "{{occupied}} / {{total}} đang sử dụng",
+    "alerts": "Cảnh báo đang hoạt động",
+    "noAlerts": "Không có cảnh báo nào.",
+    "status": {
+      "open": "Trống",
+      "reserved": "Đã đặt",
+      "dining": "Đang dùng bữa",
+      "cleanup": "Đang dọn dẹp"
+    }
+  },
+  "foh": {
+    "createOrder": "Tạo đơn",
+    "total": "Tổng cộng",
+    "sendToKitchen": "Gửi xuống bếp",
+    "inKitchen": "Đang chế biến...",
+    "markServed": "Đánh dấu đã phục vụ",
+    "recordPayment": "Ghi nhận thanh toán"
+  },
+  "boh": {
+    "inventory": "Tồn kho",
+    "item": "Mặt hàng",
+    "stock": "Tồn kho",
+    "par": "Mức tối thiểu",
+    "stockoutProjection": "Dự báo hết hàng",
+    "willRunOutBy": "Sẽ hết lúc {{time}}",
+    "kitchenDisplay": "Màn hình bếp",
+    "overloadWarning": "Hàng đợi bếp đang quá tải — thời gian chế biến có thể chậm.",
+    "noQueue": "Không có món nào trong hàng đợi bếp.",
+    "elapsedMin": "Đã trôi qua {{min}} phút",
+    "labor": "Nhân sự",
+    "staffOnShift": "{{count}} nhân viên đang ca",
+    "recentOrders": "{{count}} đơn trong 2 giờ qua",
+    "staffingFlag": {
+      "understaffed": "Thiếu nhân sự so với lượng đơn hiện tại",
+      "overstaffed": "Dư nhân sự so với lượng đơn hiện tại"
+    },
+    "tasks": "công việc",
+    "profitSnapshot": "Tổng quan lợi nhuận",
+    "foodCost": "Chi phí nguyên liệu",
+    "laborCost": "Chi phí nhân công",
+    "profit": "Lợi nhuận"
+  },
+  "insights": {
+    "title": "Phân tích & Đề xuất",
+    "filterType": "Loại",
+    "filterSeverity": "Mức độ",
+    "all": "Tất cả",
+    "type": {
+      "root_cause": "Nguyên nhân gốc",
+      "risk_forecast": "Dự báo rủi ro",
+      "recommendation": "Đề xuất"
+    },
+    "severity": {
+      "info": "Thông tin",
+      "warning": "Cảnh báo",
+      "critical": "Nghiêm trọng"
+    },
+    "statusLabel": {
+      "new": "Mới",
+      "acknowledged": "Đã xác nhận",
+      "acted_on": "Đã xử lý"
+    },
+    "acknowledge": "Xác nhận",
+    "empty": "Không có phân tích nào khớp với bộ lọc."
+  },
+  "guest": {
+    "reservations": "Đặt bàn",
+    "noUpcoming": "Không có đặt bàn sắp tới.",
+    "guestName": "Khách hàng",
+    "partySize": "Số khách",
+    "time": "Thời gian",
+    "status": "Trạng thái",
+    "statusLabel": {
+      "confirmed": "Đã xác nhận",
+      "completed": "Đã hoàn tất",
+      "cancelled": "Đã hủy"
+    },
+    "loyalty": "Khách hàng thân thiết",
+    "noRepeatGuests": "Chưa có khách hàng quay lại.",
+    "visitFrequency": "Số lượt",
+    "visits": "{{count}} lượt",
+    "lastVisit": "Lần ghé gần nhất"
+  }
+}

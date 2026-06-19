@@ -1,0 +1,117 @@
+{
+  "app": {
+    "name": "Pang Pang SmartOps AI"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "frontOfHouse": "Front of House",
+    "backOfHouse": "Back of House",
+    "guestEngagement": "Guest Engagement",
+    "insights": "Insights",
+    "settings": "Settings"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "auth": {
+    "login": "Log in",
+    "logout": "Log out",
+    "email": "Email",
+    "password": "Password"
+  },
+  "settings": {
+    "language": "Language",
+    "role": "Role"
+  },
+  "dashboard": {
+    "todayRevenue": "Today's Revenue",
+    "covers": "Covers",
+    "avgTicket": "Avg Ticket",
+    "tableOccupancy": "Table Occupancy",
+    "tablesOccupied": "{{occupied}} / {{total}} occupied",
+    "alerts": "Active Alerts",
+    "noAlerts": "No active alerts.",
+    "status": {
+      "open": "Open",
+      "reserved": "Reserved",
+      "dining": "Dining",
+      "cleanup": "Cleanup"
+    }
+  },
+  "foh": {
+    "createOrder": "Create Order",
+    "total": "Total",
+    "sendToKitchen": "Send to Kitchen",
+    "inKitchen": "In kitchen...",
+    "markServed": "Mark Served",
+    "recordPayment": "Record Payment"
+  },
+  "boh": {
+    "inventory": "Inventory",
+    "item": "Item",
+    "stock": "Stock",
+    "par": "Par Level",
+    "stockoutProjection": "Stockout Projection",
+    "willRunOutBy": "Will run out by {{time}}",
+    "kitchenDisplay": "Kitchen Display",
+    "overloadWarning": "Kitchen queue is overloaded — prep times may slip.",
+    "noQueue": "No items in the kitchen queue.",
+    "elapsedMin": "{{min}} min elapsed",
+    "labor": "Labor",
+    "staffOnShift": "{{count}} staff on shift",
+    "recentOrders": "{{count}} orders in last 2h",
+    "staffingFlag": {
+      "understaffed": "Understaffed for current order volume",
+      "overstaffed": "Overstaffed for current order volume"
+    },
+    "tasks": "tasks",
+    "profitSnapshot": "Profit Snapshot",
+    "foodCost": "Food Cost",
+    "laborCost": "Labor Cost",
+    "profit": "Profit"
+  },
+  "insights": {
+    "title": "Insights",
+    "filterType": "Type",
+    "filterSeverity": "Severity",
+    "all": "All",
+    "type": {
+      "root_cause": "Root Cause",
+      "risk_forecast": "Risk Forecast",
+      "recommendation": "Recommendation"
+    },
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "critical": "Critical"
+    },
+    "statusLabel": {
+      "new": "New",
+      "acknowledged": "Acknowledged",
+      "acted_on": "Acted on"
+    },
+    "acknowledge": "Acknowledge",
+    "empty": "No insights match these filters."
+  },
+  "guest": {
+    "reservations": "Reservations",
+    "noUpcoming": "No upcoming reservations.",
+    "guestName": "Guest",
+    "partySize": "Party Size",
+    "time": "Time",
+    "status": "Status",
+    "statusLabel": {
+      "confirmed": "Confirmed",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "loyalty": "Top Repeat Guests",
+    "noRepeatGuests": "No repeat guests yet.",
+    "visitFrequency": "Visits",
+    "visits": "{{count}} visits",
+    "lastVisit": "Last Visit"
+  }
+}

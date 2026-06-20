@@ -8,6 +8,7 @@
     "backOfHouse": "Khu vực bếp",
     "guestEngagement": "Khách hàng",
     "insights": "Phân tích & Đề xuất",
+    "consultant": "Tư vấn AI",
     "settings": "Cài đặt"
   },
   "common": {
@@ -113,5 +114,12 @@
     "visitFrequency": "Số lượt",
     "visits": "{{count}} lượt",
     "lastVisit": "Lần ghé gần nhất"
+  },
+  "consultant": {
+    "title": "Tư vấn AI",
+    "placeholder": "Hỏi về hoạt động kinh doanh của bạn...",
+    "send": "Gửi",
+    "empty": "Đặt câu hỏi để bắt đầu.",
+    "error": "Trợ lý AI tạm thời không khả dụng. Vui lòng thử lại."
   }
 }

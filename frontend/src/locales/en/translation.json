@@ -8,6 +8,7 @@
     "backOfHouse": "Back of House",
     "guestEngagement": "Guest Engagement",
     "insights": "Insights",
+    "consultant": "AI Consultant",
     "settings": "Settings"
   },
   "common": {
@@ -113,5 +114,12 @@
     "visitFrequency": "Visits",
     "visits": "{{count}} visits",
     "lastVisit": "Last Visit"
+  },
+  "consultant": {
+    "title": "AI Consultant",
+    "placeholder": "Ask about your business...",
+    "send": "Send",
+    "empty": "Ask a question to get started.",
+    "error": "AI Consultant is temporarily unavailable. Please try again."
   }
 }

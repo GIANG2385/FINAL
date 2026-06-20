@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { api } from '../services/api'
 
@@ -27,9 +27,17 @@ export default function Dashboard() {
   const [tables, setTables] = useState(null)
   const [insights, setInsights] = useState([])
   const [ackError, setAckError] = useState(null)
+  const [revenueRange, setRevenueRange] = useState('day')
+  const [revenueSummary, setRevenueSummary] = useState(null)
+  const [revenueError, setRevenueError] = useState(null)
 
   useEffect(() => {
-    const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+    // Scoped to the last 24h — the orders collection also holds 10,000+
+    // historical rows (loaded for analytics baselines), which an
+    // unscoped live listener here would read in full on every mount.
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
+    const unsubOrders = onSnapshot(recentOrders, (snap) => {
       setOrders(snap.docs.map((d) => d.data()))
     })
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -45,6 +53,14 @@ export default function Dashboard() {
     }
   }, [])
 
+  useEffect(() => {
+    setRevenueError(null)
+    api
+      .get(`/api/profit/summary?range=${revenueRange}`)
+      .then(setRevenueSummary)
+      .catch(() => setRevenueError(t('common.error')))
+  }, [revenueRange, t])
+
   if (orders === null || tables === null) {
     return <div className="p-6">{t('common.loading')}</div>
   }
@@ -58,6 +74,15 @@ export default function Dashboard() {
 
   const occupied = tables.filter((tb) => tb.status === 'dining' || tb.status === 'reserved').length
   const activeInsights = insights.filter((i) => i.status !== 'acted_on')
+
+  const vsTypicalPct =
+    revenueSummary && revenueSummary.historical_avg_revenue > 0
+      ? Math.round(
+          ((revenueSummary.revenue - revenueSummary.historical_avg_revenue) /
+            revenueSummary.historical_avg_revenue) *
+            100
+        )
+      : null
 
   async function handleAcknowledge(id) {
     try {
@@ -73,8 +98,35 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-gray-200 p-4">
+          <div className="mb-2 flex gap-1">
+            {['day', 'week', 'month'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setRevenueRange(r)}
+                className={
+                  'rounded px-2 py-0.5 text-xs ' +
+                  (revenueRange === r ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600')
+                }
+              >
+                {t(`dashboard.range.${r}`)}
+              </button>
+            ))}
+          </div>
           <p className="text-sm text-gray-500">{t('dashboard.todayRevenue')}</p>
-          <p className="mt-1 text-xl font-semibold">{formatVnd(todayRevenue, i18n.language)}</p>
+          {revenueError ? (
+            <p className="mt-1 text-sm text-red-600">{revenueError}</p>
+          ) : revenueSummary ? (
+            <>
+              <p className="mt-1 text-xl font-semibold">{formatVnd(revenueSummary.revenue, i18n.language)}</p>
+              {vsTypicalPct !== null && (
+                <p className={'mt-1 text-xs ' + (vsTypicalPct >= 0 ? 'text-green-600' : 'text-red-600')}>
+                  {t('dashboard.vsTypical', { pct: vsTypicalPct >= 0 ? `+${vsTypicalPct}` : vsTypicalPct })}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-1 text-xl font-semibold">{formatVnd(todayRevenue, i18n.language)}</p>
+          )}
         </div>
         <div className="rounded-lg border border-gray-200 p-4">
           <p className="text-sm text-gray-500">{t('dashboard.covers')}</p>

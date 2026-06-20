@@ -1,29 +1,24 @@
 import { db } from '../firebaseAdmin.js'
-import { getChatCompletion } from '../services/openaiClient.js'
+import { getChatCompletion } from '../services/cohereClient.js'
+import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
 const HISTORY_LIMIT = 10
 
-function toDate(value) {
-  if (!value) return null
-  return value.toDate ? value.toDate() : new Date(value)
-}
-
-function isToday(date) {
-  const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
+function startOfToday() {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
 }
 
 async function buildDataSnapshot() {
-  const ordersSnap = await db.collection('orders').where('status', '==', 'served').get()
+  // Server-side range filter (not status-filtered, to avoid needing a
+  // composite index) — orders now holds 10,000+ historical rows, so an
+  // unfiltered full-collection scan here would be extremely costly.
+  const ordersSnap = await db.collection('orders').where('served_at', '>=', startOfToday()).get()
   const revenue = ordersSnap.docs.reduce((sum, doc) => {
     const order = doc.data()
-    const servedAt = toDate(order.served_at)
-    if (servedAt && isToday(servedAt)) return sum + (order.total_amount || 0)
-    return sum
+    if (order.status !== 'served') return sum
+    return sum + (order.total_amount || 0)
   }, 0)
 
   const inventorySnap = await db.collection('inventory').get()
@@ -46,8 +41,17 @@ async function buildDataSnapshot() {
     .filter((i) => i.status !== 'acted_on')
     .map((i) => i.summary_en)
 
+  const baseline = await getHistoricalBaseline()
+  const weekday = new Date().getDay()
+  const typicalToday = baseline.byWeekday[weekday] || 0
+  const vsTypical =
+    typicalToday > 0 ? Math.round(((revenue - typicalToday) / typicalToday) * 100) : null
+
   return [
     `Today's revenue so far: ${revenue.toLocaleString('en-US')} VND.`,
+    typicalToday > 0
+      ? `Historical average revenue for this day of week (based on ${baseline.distinctDays} days of past data): ${typicalToday.toLocaleString('en-US')} VND — today is currently ${vsTypical >= 0 ? '+' : ''}${vsTypical}% versus that typical level (note: a partial day so far will naturally read below 100% until the day ends).`
+      : 'No historical baseline data available yet to compare today against.',
     atRiskItems.length > 0
       ? `Inventory items at risk of running out soon: ${atRiskItems.join('; ')}.`
       : 'No inventory items currently at risk of stockout.',

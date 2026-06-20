@@ -1,4 +1,5 @@
 import { db } from '../firebaseAdmin.js'
+import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
 // Profit snapshot — rule-based estimate, not real cost accounting.
 // food_cost is assumed as a flat % of revenue (no per-ingredient cost data
@@ -8,27 +9,35 @@ import { db } from '../firebaseAdmin.js'
 const ASSUMED_FOOD_COST_PCT = 0.32
 const ASSUMED_HOURLY_WAGE_VND = 25000
 
-function isToday(date) {
-  const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
+const RANGE_DAYS = { day: 1, week: 7, month: 30 }
+
+function startOfRange(range) {
+  const days = RANGE_DAYS[range] ?? 1
+  const cutoff = new Date()
+  cutoff.setHours(0, 0, 0, 0)
+  cutoff.setDate(cutoff.getDate() - (days - 1))
+  return cutoff
 }
 
 export async function getProfitSummary(req, res) {
-  // 'week' isn't meaningfully different yet — the MVP only has "today's"
-  // seeded data, so both ranges report the same window for now.
-  const range = req.query.range === 'week' ? 'week' : 'day'
+  const range = ['day', 'week', 'month'].includes(req.query.range) ? req.query.range : 'day'
+  const cutoff = startOfRange(range)
 
-  const ordersSnap = await db.collection('orders').where('status', '==', 'served').get()
+  // Range-filtered server-side (not status-filtered, to avoid needing a
+  // composite index) — the orders collection holds 10,000+ historical rows,
+  // so an unfiltered full-collection scan here would be extremely costly.
+  const ordersSnap = await db.collection('orders').where('served_at', '>=', cutoff).get()
   const revenue = ordersSnap.docs.reduce((sum, doc) => {
     const order = doc.data()
-    const servedAt = order.served_at?.toDate ? order.served_at.toDate() : order.served_at ? new Date(order.served_at) : null
-    if (servedAt && isToday(servedAt)) return sum + (order.total_amount || 0)
-    return sum
+    if (order.status !== 'served') return sum
+    return sum + (order.total_amount || 0)
   }, 0)
+
+  // Historical daily average (from pre-today data) scaled to this range's
+  // length, so the live figure can be compared against a real benchmark
+  // instead of reported in isolation.
+  const baseline = await getHistoricalBaseline()
+  const historical_avg_revenue = baseline.avgDailyRevenue * RANGE_DAYS[range]
 
   const shiftsSnap = await db.collection('staff_shifts').get()
   const labor_cost = shiftsSnap.docs.reduce((sum, doc) => {
@@ -48,5 +57,6 @@ export async function getProfitSummary(req, res) {
     food_cost,
     labor_cost: Math.round(labor_cost),
     profit: Math.round(profit),
+    historical_avg_revenue,
   })
 }

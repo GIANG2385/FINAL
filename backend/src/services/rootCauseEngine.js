@@ -1,15 +1,14 @@
 // Rule-based root-cause analysis — simulated stand-in for the full ML
 // engine described in the proposal (build instructions §6).
 //
-// MVP simplification: with only "today's" seeded data and no multi-day
-// history, the "baseline" is the prior 2h window of today's revenue
-// rather than a rolling historical average. Documented here so a future
-// pass swapping in real historical baselines knows what to replace.
+// Baseline is the historical average revenue for this same time-of-day
+// window (see services/historicalBaseline.js), computed from real past
+// orders rather than a same-day prior-window comparison.
 const DROP_THRESHOLD_PCT = 0.15
 
-export function analyzeRootCause({ recentRevenue, priorRevenue, stockoutSkus, kitchenOverloaded, complaintCount }) {
-  if (priorRevenue <= 0) return null
-  const dropPct = (priorRevenue - recentRevenue) / priorRevenue
+export function analyzeRootCause({ recentRevenue, baselineRevenue, stockoutSkus, kitchenOverloaded, complaintCount }) {
+  if (baselineRevenue <= 0) return null
+  const dropPct = (baselineRevenue - recentRevenue) / baselineRevenue
   if (dropPct < DROP_THRESHOLD_PCT) return null
 
   const causes_en = []
@@ -32,13 +31,13 @@ export function analyzeRootCause({ recentRevenue, priorRevenue, stockoutSkus, ki
   return {
     type: 'root_cause',
     severity: dropPct > 0.3 ? 'critical' : 'warning',
-    summary_en: `Revenue dropped ${pct}% versus the prior window${
+    summary_en: `Revenue is ${pct}% below the historical average for this time of day${
       causes_en.length ? `, linked to ${causes_en.join(' and ')}` : ''
     }.`,
-    summary_vi: `Doanh thu giảm ${pct}% so với khung giờ trước${
+    summary_vi: `Doanh thu thấp hơn ${pct}% so với mức trung bình lịch sử cho khung giờ này${
       causes_vi.length ? `, liên quan đến ${causes_vi.join(' và ')}` : ''
     }.`,
-    metrics: { revenue_impact_vnd: recentRevenue - priorRevenue, drop_pct: pct },
+    metrics: { revenue_impact_vnd: recentRevenue - baselineRevenue, drop_pct: pct },
     related_entities: { stockout_skus: stockoutSkus, kitchen_overloaded: kitchenOverloaded, complaint_count: complaintCount },
   }
 }

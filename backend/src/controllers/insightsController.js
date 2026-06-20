@@ -2,19 +2,11 @@ import { db } from '../firebaseAdmin.js'
 import { forecastStockout, forecastKitchenOverload } from '../services/riskForecast.js'
 import { analyzeRootCause } from '../services/rootCauseEngine.js'
 import { recommendationFor } from '../services/recommendationEngine.js'
+import { getHistoricalBaseline, typicalRevenueForWindow } from '../services/historicalBaseline.js'
 
 function toDate(value) {
   if (!value) return null
   return value.toDate ? value.toDate() : new Date(value)
-}
-
-function isToday(date) {
-  const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
 }
 
 async function hasRecentOpenInsight(type, matchKey, matchValue) {
@@ -75,19 +67,23 @@ export async function runAnalysisInternal() {
     }
   }
 
-  // --- Root cause: revenue dip in the last 2h vs the prior 2h ---
-  const ordersSnap = await db.collection('orders').where('status', '==', 'served').get()
+  // --- Root cause: revenue in the last 2h vs the historical baseline for this time of day ---
+  // Server-side range filter (not status-filtered, to avoid needing a
+  // composite index) — orders now holds 10,000+ historical rows. This runs
+  // every 60s via the scheduler, so an unfiltered full-collection scan here
+  // would exhaust the Firestore read quota within minutes.
   const now = Date.now()
+  const recentCutoff = new Date(now - 120 * 60000)
+  const recentOrdersSnap = await db.collection('orders').where('served_at', '>=', recentCutoff).get()
   let recentRevenue = 0
-  let priorRevenue = 0
-  for (const doc of ordersSnap.docs) {
+  for (const doc of recentOrdersSnap.docs) {
     const order = doc.data()
-    const servedAt = toDate(order.served_at)
-    if (!servedAt || !isToday(servedAt)) continue
-    const ageMin = (now - servedAt.getTime()) / 60000
-    if (ageMin <= 120) recentRevenue += order.total_amount || 0
-    else if (ageMin <= 240) priorRevenue += order.total_amount || 0
+    if (order.status !== 'served') continue
+    recentRevenue += order.total_amount || 0
   }
+
+  const baseline = await getHistoricalBaseline()
+  const baselineRevenue = typicalRevenueForWindow(baseline, new Date(now).getHours() - 1, 2)
 
   const stockoutSkus = inventorySnap.docs
     .map((d) => d.data())
@@ -96,7 +92,7 @@ export async function runAnalysisInternal() {
 
   const rootCauseDraft = analyzeRootCause({
     recentRevenue,
-    priorRevenue,
+    baselineRevenue,
     stockoutSkus,
     kitchenOverloaded: activeQueue.length >= 5,
     complaintCount: 0,

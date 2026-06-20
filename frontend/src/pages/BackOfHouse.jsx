@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { api } from '../services/api'
 
@@ -39,7 +39,12 @@ export default function BackOfHouse() {
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
       setStaffShifts(snap.docs.map((d) => d.data()))
     })
-    const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+    // Scoped to the last 24h — the orders collection also holds 10,000+
+    // historical rows (loaded for analytics baselines), which an
+    // unscoped live listener here would read in full on every mount.
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
+    const unsubOrders = onSnapshot(recentOrders, (snap) => {
       setOrders(snap.docs.map((d) => d.data()))
     })
     return () => {

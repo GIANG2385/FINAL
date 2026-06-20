@@ -180,103 +180,103 @@ export default function FrontOfHouse() {
             </div>
           ) : (
             <>
-          {!activeOrder && (
-            <div className="space-y-3">
-              {MENU_ITEMS.map((item) => (
-                <div key={item.sku} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
-                    <p className="text-xs text-gray-500">{formatVnd(item.unit_price, i18n.language)}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
+              {!activeOrder && (
+                <div className="space-y-3">
+                  {MENU_ITEMS.map((item) => (
+                    <div key={item.sku} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                        <p className="text-xs text-gray-500">{formatVnd(item.unit_price, i18n.language)}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="h-7 w-7 rounded border border-gray-300"
+                          onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))}
+                        >
+                          −
+                        </button>
+                        <span className="w-4 text-center">{cart[item.sku] || 0}</span>
+                        <button
+                          className="h-7 w-7 rounded border border-gray-300"
+                          onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between border-t border-gray-200 pt-3">
+                    <span className="font-medium">{formatVnd(cartTotal, i18n.language)}</span>
                     <button
-                      className="h-7 w-7 rounded border border-gray-300"
-                      onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))}
+                      disabled={busy || cartItems.length === 0}
+                      onClick={handleCreateOrder}
+                      className="rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
                     >
-                      −
-                    </button>
-                    <span className="w-4 text-center">{cart[item.sku] || 0}</span>
-                    <button
-                      className="h-7 w-7 rounded border border-gray-300"
-                      onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))}
-                    >
-                      +
+                      {t('foh.createOrder')}
                     </button>
                   </div>
                 </div>
-              ))}
-              <div className="flex items-center justify-between border-t border-gray-200 pt-3">
-                <span className="font-medium">{formatVnd(cartTotal, i18n.language)}</span>
-                <button
-                  disabled={busy || cartItems.length === 0}
-                  onClick={handleCreateOrder}
-                  className="rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {t('foh.createOrder')}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeOrder && (
-            <div className="space-y-3">
-              <ul className="space-y-1">
-                {activeOrder.items.map((it, idx) => (
-                  <li key={idx} className="flex justify-between text-sm">
-                    <span>
-                      {it.qty}× {i18n.language === 'vi' ? it.name_vi : it.name_en}
-                    </span>
-                    <span>{formatVnd(it.unit_price * it.qty, i18n.language)}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex justify-between border-t-2 border-gray-400 pt-2 text-base font-semibold">
-                <span>{t('foh.total')}</span>
-                <span>{formatVnd(activeOrder.total_amount, i18n.language)}</span>
-              </div>
-
-              {activeOrder.status === 'open' && (
-                <button
-                  disabled={busy}
-                  onClick={() => handleSendToKitchen(activeOrder.id)}
-                  className="w-full rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {t('foh.sendToKitchen')}
-                </button>
               )}
 
-              {activeOrder.status === 'in_kitchen' && (
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-500">{t('foh.inKitchen')}</p>
-                  <button
-                    disabled={busy}
-                    onClick={() => handleMarkServed(activeOrder.id)}
-                    className="w-full rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-                  >
-                    {t('foh.markServed')}
-                  </button>
-                </div>
-              )}
-
-              {activeOrder.status === 'served' && !activeOrder.payment_method && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">{t('foh.recordPayment')}</p>
-                  <div className="flex gap-2">
-                    {PAYMENT_METHODS.map((method) => (
-                      <button
-                        key={method}
-                        disabled={busy}
-                        onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
-                        className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm capitalize disabled:opacity-50"
-                      >
-                        {method}
-                      </button>
+              {activeOrder && (
+                <div className="space-y-3">
+                  <ul className="space-y-1">
+                    {activeOrder.items.map((it, idx) => (
+                      <li key={idx} className="flex justify-between text-sm">
+                        <span>
+                          {it.qty}× {i18n.language === 'vi' ? it.name_vi : it.name_en}
+                        </span>
+                        <span>{formatVnd(it.unit_price * it.qty, i18n.language)}</span>
+                      </li>
                     ))}
+                  </ul>
+                  <div className="flex justify-between border-t-2 border-gray-400 pt-2 text-base font-semibold">
+                    <span>{t('foh.total')}</span>
+                    <span>{formatVnd(activeOrder.total_amount, i18n.language)}</span>
                   </div>
+
+                  {activeOrder.status === 'open' && (
+                    <button
+                      disabled={busy}
+                      onClick={() => handleSendToKitchen(activeOrder.id)}
+                      className="w-full rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      {t('foh.sendToKitchen')}
+                    </button>
+                  )}
+
+                  {activeOrder.status === 'in_kitchen' && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-500">{t('foh.inKitchen')}</p>
+                      <button
+                        disabled={busy}
+                        onClick={() => handleMarkServed(activeOrder.id)}
+                        className="w-full rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                      >
+                        {t('foh.markServed')}
+                      </button>
+                    </div>
+                  )}
+
+                  {activeOrder.status === 'served' && !activeOrder.payment_method && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">{t('foh.recordPayment')}</p>
+                      <div className="flex gap-2">
+                        {PAYMENT_METHODS.map((method) => (
+                          <button
+                            key={method}
+                            disabled={busy}
+                            onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
+                            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm capitalize disabled:opacity-50"
+                          >
+                            {method}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
             </>
           )}
         </div>

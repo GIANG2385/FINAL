@@ -6,6 +6,7 @@ import inventoryRouter from './routes/inventory.js'
 import profitRouter from './routes/profit.js'
 import insightsRouter from './routes/insights.js'
 import runAnalysisRouter from './routes/runAnalysis.js'
+import consultantRouter from './routes/consultant.js'
 import { runAnalysisInternal } from './controllers/insightsController.js'
 
 const app = express()
@@ -21,6 +22,7 @@ app.use('/api/inventory', inventoryRouter)
 app.use('/api/profit', profitRouter)
 app.use('/api/insights', insightsRouter)
 app.use('/api/run-analysis', runAnalysisRouter)
+app.use('/api/consultant', consultantRouter)
 
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => {

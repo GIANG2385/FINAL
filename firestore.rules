@@ -20,6 +20,10 @@ service cloud.firestore {
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
+    match /consultant_conversations/{userId}/messages/{messageId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
     match /insights/{docId} {
       allow read: if isSignedIn();
       allow write: if isManagerOrAdmin();

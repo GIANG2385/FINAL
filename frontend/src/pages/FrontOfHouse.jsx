@@ -35,6 +35,7 @@ export default function FrontOfHouse() {
   const [cart, setCart] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [paymentConfirmation, setPaymentConfirmation] = useState(null)
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -113,12 +114,13 @@ export default function FrontOfHouse() {
     }
   }
 
-  async function handleRecordPayment(orderId, method) {
+  async function handleRecordPayment(orderId, method, total) {
     setBusy(true)
     setError(null)
     try {
       await updateDoc(doc(db, 'orders', orderId), { payment_method: method })
       await updateDoc(doc(db, 'tables', selectedTable), { status: 'cleanup' })
+      setPaymentConfirmation({ tableId: selectedTable, total, method })
     } catch (err) {
       setError(t('common.error'))
     } finally {
@@ -134,7 +136,10 @@ export default function FrontOfHouse() {
         {tables.map((tb) => (
           <button
             key={tb.table_id}
-            onClick={() => setSelectedTable(tb.table_id)}
+            onClick={() => {
+              setSelectedTable(tb.table_id)
+              setPaymentConfirmation(null)
+            }}
             className={
               'rounded-md p-3 text-center text-sm font-medium ring-2 transition ' +
               TABLE_COLORS[tb.status] +
@@ -161,6 +166,20 @@ export default function FrontOfHouse() {
           </div>
           {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
 
+          {paymentConfirmation && paymentConfirmation.tableId === selectedTable ? (
+            <div className="space-y-3 text-center">
+              <p className="text-lg font-semibold text-green-700">{t('foh.paymentReceived')}</p>
+              <p className="text-2xl font-bold">{formatVnd(paymentConfirmation.total, i18n.language)}</p>
+              <p className="text-sm capitalize text-gray-500">{paymentConfirmation.method}</p>
+              <button
+                onClick={() => setPaymentConfirmation(null)}
+                className="w-full rounded bg-purple-600 px-4 py-2 text-sm text-white"
+              >
+                {t('foh.startNewOrder')}
+              </button>
+            </div>
+          ) : (
+            <>
           {!activeOrder && (
             <div className="space-y-3">
               {MENU_ITEMS.map((item) => (
@@ -247,7 +266,7 @@ export default function FrontOfHouse() {
                       <button
                         key={method}
                         disabled={busy}
-                        onClick={() => handleRecordPayment(activeOrder.id, method)}
+                        onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
                         className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm capitalize disabled:opacity-50"
                       >
                         {method}
@@ -257,6 +276,8 @@ export default function FrontOfHouse() {
                 </div>
               )}
             </div>
+          )}
+            </>
           )}
         </div>
       )}

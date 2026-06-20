@@ -2,7 +2,7 @@
 
 > Companion to `PangPang_SmartOps_AI_Build_Instructions.md`. Read that file first for full spec. This file tracks what's done and what's next — update it after every build step.
 
-**Status as of 2026-06-19:** Steps 1–11 complete (full vertical slice + polish pass). Repo pushed to GitHub, frontend deploying to Vercel (user-driven). A new feature beyond the original build doc — an AI Operations Consultant chatbot using the real OpenAI API — is now in the design phase (spec written, not yet implemented).
+**Status as of 2026-06-20:** Steps 1–11 complete (full vertical slice + polish pass). Repo pushed to GitHub, frontend deploying to Vercel (user-driven). AI Operations Consultant chatbot (beyond original build doc, real OpenAI API) has an approved spec and implementation plan; implementation in progress via subagent-driven-development, currently blocked on Task 1 pending the user's OpenAI API key.
 
 ---
 
@@ -27,7 +27,7 @@ Rule: build and verify each step before moving to the next; don't generate the w
 
 ## Open Decisions / Blockers
 
-- AI Consultant chatbot implementation plan not yet written — spec is approved-pending-review at `docs/superpowers/specs/2026-06-19-ai-consultant-chatbot-design.md`. Next step is the `writing-plans` skill once the user confirms the spec looks right.
+- **Blocking Task 1 of the AI Consultant implementation:** `backend/.env` has placeholder lines `OPENAI_API_KEY=` and `OPENAI_MODEL=gpt-4o-mini` but the key value itself is still empty. The Task 1 implementer subagent got through steps 1-4 (installed `openai` SDK, wrote `backend/src/services/openaiClient.js`, committed) but is blocked on step 5 (real API call verification) until the key is set. User needs to paste the key in chat or fill it into `backend/.env` directly (gitignored, never committed) — same pattern used for the Firebase service account in step 2.
 - Backend has no deployed host yet (still local-only). Frontend going to Vercel doesn't include the backend — `VITE_API_BASE_URL` in Vercel will need updating once a backend host (Render/Railway/Fly.io/Cloud Run) is chosen.
 
 ---
@@ -131,5 +131,14 @@ Rule: build and verify each step before moving to the next; don't generate the w
 - **New feature (beyond original build doc), in design phase:** AI Operations Consultant chatbot using the real OpenAI API — explicit user-requested exception to §10's "no external LLM calls unless asked." Went through full `superpowers:brainstorming` flow:
   - Purpose: conversational consultant for the *owner* to ask "why" questions about the business, grounded in real live data (today's revenue/profit, at-risk inventory, active insights) — not a generic FAQ bot.
   - Key decisions: fixed data snapshot per turn (not OpenAI function calling — simpler, matches this project's vertical-slice-first style), dedicated `/consultant` page (not a floating widget), manager/admin-only access (same role-gating pattern as `acknowledgeInsight`), conversation persisted to Firestore per-user (`consultant_conversations/{uid}/messages`), bot replies in **English only** regardless of UI language (the rest of the app's AI text is bilingual via templates, but freeform LLM output isn't templated — decided not to force bilingual generation for this iteration), model `gpt-4o-mini` by default via `OPENAI_MODEL` env var override, user already has an OpenAI API key so account-creation steps are skipped.
-  - Spec written and committed: `docs/superpowers/specs/2026-06-19-ai-consultant-chatbot-design.md`. **Not yet implemented** — waiting on user's review of the spec before invoking `writing-plans` for the implementation plan.
-- Next: get spec sign-off → `writing-plans` skill → implement the chatbot. Separately, confirm Vercel deploy succeeded and decide on a backend host when ready.
+  - Spec written and committed: `docs/superpowers/specs/2026-06-19-ai-consultant-chatbot-design.md`.
+
+### 2026-06-20
+- **Spec approved**, moved to `superpowers:writing-plans`. Implementation plan written and committed: `docs/superpowers/plans/2026-06-19-ai-consultant-chatbot.md` — 7 tasks (OpenAI client wrapper → Firestore rules → backend endpoint → i18n keys → chat page → routing/nav → end-to-end verification). Plan explicitly documents that this project has no test framework; "TDD" steps are the same real `curl`/Node-script/Playwright verification convention used for every other feature so far.
+- **Execution started via `superpowers:subagent-driven-development`**, building directly on `main` (user explicitly chose this over a feature branch, consistent with how every other step in this project was built).
+  - Set up the ledger at `.superpowers/sdd/progress.md` (gitignored scratch, not committed) to track task completion across context resets.
+  - **Task 1 (OpenAI client wrapper) dispatched to a Haiku implementer subagent.** Completed steps 1-4 cleanly: `npm install openai`, wrote `backend/src/services/openaiClient.js` (matches `firebaseAdmin.js`'s warn-and-degrade-gracefully pattern for a missing required env var), added `OPENAI_API_KEY`/`OPENAI_MODEL` lines to `.env.example`, committed (`fa368e4`).
+  - **Blocked on step 5** (the real-API verification call): `backend/.env` had no `OPENAI_API_KEY` set, despite the user confirming during brainstorming that they already had a key. Implementer correctly escalated as `NEEDS_CONTEXT` rather than fabricating a key or skipping verification — this project's convention requires every verification step to actually run against real services, not be claimed.
+  - Added placeholder `OPENAI_API_KEY=`/`OPENAI_MODEL=gpt-4o-mini` lines directly to `backend/.env` (gitignored) so the user only has to fill in the value. **Still waiting on the user to provide the actual key** (same handoff pattern as the Firebase service account in step 2 — paste in chat or edit the file directly).
+  - Task 1 is **not yet marked complete in the ledger** — once the key is in place, the implementer (or a fresh one) needs to re-run only step 5 (the code from steps 1-4 doesn't need to change), then proceed to the task reviewer subagent before moving to Task 2.
+- Next: get the OpenAI API key from the user → finish Task 1 step 5 → task review → Tasks 2-7 in sequence per the plan. Separately, confirm Vercel deploy succeeded and decide on a backend host when ready.

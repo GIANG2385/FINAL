@@ -19,6 +19,12 @@ const TABLE_COLORS = {
   cleanup: 'bg-orange-100 text-orange-700',
 }
 
+const ORDER_STATUS_COLORS = {
+  open: 'bg-gray-100 text-gray-600',
+  in_kitchen: 'bg-purple-100 text-purple-700',
+  served: 'bg-green-100 text-green-700',
+}
+
 const PAYMENT_METHODS = ['cash', 'card', 'momo']
 
 export default function FrontOfHouse() {
@@ -143,7 +149,16 @@ export default function FrontOfHouse() {
 
       {selectedTable && (
         <div className="mt-6 max-w-md rounded-lg border border-gray-200 p-4">
-          <h2 className="mb-3 text-lg font-semibold">{selectedTable}</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">
+              {activeOrder ? t('foh.billFor', { table: selectedTable }) : selectedTable}
+            </h2>
+            {activeOrder && (
+              <span className={'rounded-full px-2 py-0.5 text-xs font-medium ' + ORDER_STATUS_COLORS[activeOrder.status]}>
+                {t(`foh.orderStatus.${activeOrder.status}`)}
+              </span>
+            )}
+          </div>
           {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
 
           {!activeOrder && (
@@ -196,7 +211,7 @@ export default function FrontOfHouse() {
                   </li>
                 ))}
               </ul>
-              <div className="flex justify-between border-t border-gray-200 pt-2 font-medium">
+              <div className="flex justify-between border-t-2 border-gray-400 pt-2 text-base font-semibold">
                 <span>{t('foh.total')}</span>
                 <span>{formatVnd(activeOrder.total_amount, i18n.language)}</span>
               </div>

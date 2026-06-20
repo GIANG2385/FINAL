@@ -35,6 +35,12 @@
     "tablesOccupied": "{{occupied}} / {{total}} đang sử dụng",
     "alerts": "Cảnh báo đang hoạt động",
     "noAlerts": "Không có cảnh báo nào.",
+    "range": {
+      "day": "Hôm nay",
+      "week": "7 Ngày",
+      "month": "Tháng này"
+    },
+    "vsTypical": "{{pct}}% so với mức trung bình",
     "status": {
       "open": "Trống",
       "reserved": "Đã đặt",
@@ -48,7 +54,15 @@
     "sendToKitchen": "Gửi xuống bếp",
     "inKitchen": "Đang chế biến...",
     "markServed": "Đánh dấu đã phục vụ",
-    "recordPayment": "Ghi nhận thanh toán"
+    "recordPayment": "Ghi nhận thanh toán",
+    "billFor": "Hóa đơn — {{table}}",
+    "orderStatus": {
+      "open": "Trống",
+      "in_kitchen": "Đang chế biến",
+      "served": "Đã phục vụ"
+    },
+    "paymentReceived": "Đã nhận thanh toán",
+    "startNewOrder": "Bắt đầu đơn mới"
   },
   "boh": {
     "inventory": "Tồn kho",

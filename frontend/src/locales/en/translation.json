@@ -35,6 +35,12 @@
     "tablesOccupied": "{{occupied}} / {{total}} occupied",
     "alerts": "Active Alerts",
     "noAlerts": "No active alerts.",
+    "range": {
+      "day": "Today",
+      "week": "7 Days",
+      "month": "Month"
+    },
+    "vsTypical": "{{pct}}% vs typical",
     "status": {
       "open": "Open",
       "reserved": "Reserved",
@@ -48,7 +54,15 @@
     "sendToKitchen": "Send to Kitchen",
     "inKitchen": "In kitchen...",
     "markServed": "Mark Served",
-    "recordPayment": "Record Payment"
+    "recordPayment": "Record Payment",
+    "billFor": "Bill — {{table}}",
+    "orderStatus": {
+      "open": "Open",
+      "in_kitchen": "In Kitchen",
+      "served": "Served"
+    },
+    "paymentReceived": "Payment received",
+    "startNewOrder": "Start New Order"
   },
   "boh": {
     "inventory": "Inventory",

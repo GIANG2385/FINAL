@@ -7,6 +7,7 @@ import FrontOfHouse from './pages/FrontOfHouse'
 import BackOfHouse from './pages/BackOfHouse'
 import Insights from './pages/Insights'
 import GuestEngagement from './pages/GuestEngagement'
+import Consultant from './pages/Consultant'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuth } from './context/AuthContext'
 
@@ -29,6 +30,9 @@ export default function App() {
         <Link className="shrink-0" to="/boh">{t('nav.backOfHouse')}</Link>
         <Link className="shrink-0" to="/guests">{t('nav.guestEngagement')}</Link>
         <Link className="shrink-0" to="/insights">{t('nav.insights')}</Link>
+        {role && ['manager', 'admin'].includes(role) && (
+          <Link className="shrink-0" to="/consultant">{t('nav.consultant')}</Link>
+        )}
         <Link className="shrink-0" to="/settings">{t('nav.settings')}</Link>
         <div className="ml-auto flex shrink-0 items-center gap-4">
           {user ? (
@@ -82,6 +86,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Insights />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/consultant"
+          element={
+            <ProtectedRoute>
+              <Consultant />
             </ProtectedRoute>
           }
         />

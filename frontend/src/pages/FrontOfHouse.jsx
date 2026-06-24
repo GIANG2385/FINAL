@@ -31,8 +31,7 @@ const TABLE_COLORS = {
   cleanup:  { bg: '#FEF0E7', color: '#92400E' },
 }
 
-const TABLE_MINUTES = { T01: 42, T02: 18, T03: 65, T04: 10, T05: 30, T06: 55, T07: 8, T08: 22 }
-const AVG_OCCUPIED_MIN = 28
+const AVG_OCCUPIED_MIN = 60  // avg dining time 60 min (1 hr turn)
 const PAYMENT_METHODS = ['cash', 'card', 'momo']
 
 const tabBtn = (active) => ({
@@ -269,11 +268,14 @@ export default function FrontOfHouse() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(90px,1fr))', gap: '10px', marginBottom: '12px', width: '320px' }}>
               {tables.map((tb) => {
                 const tc = TABLE_COLORS[tb.status] || TABLE_COLORS.open
-                const mins = TABLE_MINUTES[tb.table_id]
                 const isSelected = selectedTable === tb.table_id
                 const tableOrder = orders.find((o) =>
                   o.table_id === tb.table_id && o.status !== 'cancelled' && o.status !== 'served'
                 )
+                const seatedAt = toDate(tb.seated_at)
+                const elapsedMin = seatedAt && tb.status === 'dining'
+                  ? Math.round((Date.now() - seatedAt.getTime()) / 60000)
+                  : null
                 return (
                   <button
                     key={tb.table_id}
@@ -292,13 +294,13 @@ export default function FrontOfHouse() {
                         {t(`foh.orderStatus.${tableOrder.status}`)}
                       </div>
                     )}
-                    {tb.status === 'dining' && mins && (
+                    {elapsedMin !== null && (
                       <div style={{
                         marginTop: '4px', fontSize: '11px', fontWeight: 600,
-                        color: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-text)' : 'var(--pp-success-text)',
-                        background: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
+                        color: elapsedMin > AVG_OCCUPIED_MIN ? 'var(--pp-danger-text)' : 'var(--pp-success-text)',
+                        background: elapsedMin > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
                         borderRadius: '4px', padding: '1px 4px',
-                      }}>{mins}m</div>
+                      }}>{elapsedMin}m</div>
                     )}
                   </button>
                 )

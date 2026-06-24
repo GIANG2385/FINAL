@@ -172,6 +172,19 @@
     "placeholder": "Ask about your business...",
     "send": "Send",
     "empty": "Ask a question to get started.",
-    "error": "AI Consultant is temporarily unavailable. Please try again."
+    "error": "AI Consultant is temporarily unavailable. Please try again.",
+    "clearChat": "Clear chat",
+    "clearConfirm": "Clear all conversation history?",
+    "copied": "Copied",
+    "copy": "Copy",
+    "regenerate": "Regenerate",
+    "thinking": "Thinking...",
+    "messageCount": "{{count}} messages",
+    "quickPrompts": [
+      "How is today's revenue vs average?",
+      "Which table has been waiting the longest?",
+      "What inventory is running low?",
+      "Is current staffing enough for this shift?"
+    ]
   }
 }

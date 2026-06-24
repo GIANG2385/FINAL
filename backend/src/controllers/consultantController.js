@@ -231,6 +231,23 @@ async function buildDataSnapshot() {
   ].join('\n')
 }
 
+export async function clearMessages(req, res) {
+  const messagesRef = db.collection('consultant_conversations').doc(req.user.uid).collection('messages')
+  const snap = await messagesRef.get()
+  if (snap.empty) return res.json({ deleted: 0 })
+  // Firestore batch limit is 500 writes
+  const BATCH_SIZE = 500
+  let deleted = 0
+  const docs = snap.docs
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = db.batch()
+    docs.slice(i, i + BATCH_SIZE).forEach((d) => batch.delete(d.ref))
+    await batch.commit()
+    deleted += Math.min(BATCH_SIZE, docs.length - i)
+  }
+  res.json({ deleted })
+}
+
 export async function sendMessage(req, res) {
   const { message } = req.body
   if (!message || typeof message !== 'string' || !message.trim()) {

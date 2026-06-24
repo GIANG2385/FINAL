@@ -172,6 +172,19 @@
     "placeholder": "Hỏi về hoạt động kinh doanh của bạn...",
     "send": "Gửi",
     "empty": "Đặt câu hỏi để bắt đầu.",
-    "error": "Trợ lý AI tạm thời không khả dụng. Vui lòng thử lại."
+    "error": "Trợ lý AI tạm thời không khả dụng. Vui lòng thử lại.",
+    "clearChat": "Xóa cuộc trò chuyện",
+    "clearConfirm": "Xóa toàn bộ lịch sử trò chuyện?",
+    "copied": "Đã sao chép",
+    "copy": "Sao chép",
+    "regenerate": "Tạo lại",
+    "thinking": "Đang suy nghĩ...",
+    "messageCount": "{{count}} tin nhắn",
+    "quickPrompts": [
+      "Doanh thu hôm nay so với trung bình?",
+      "Bàn nào đang chờ lâu nhất?",
+      "Tồn kho nào sắp hết?",
+      "Nhân viên ca này có đủ không?"
+    ]
   }
 }

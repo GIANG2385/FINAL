@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
-import { api } from '../services/api'
 
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
@@ -51,42 +50,62 @@ const STATIC_CHANNELS = [
   { name_vi: 'ShopeeFood', name_en: 'ShopeeFood', orders: 9, revenue: 855000 },
 ]
 
-const OVERLOAD_QUEUE_DEPTH = 5
+const FOOD_COST_PCT = 0.32
+const HOURLY_WAGE_VND = 25000
 
 export default function BackOfHouse() {
   const { t, i18n } = useTranslation()
   const [activeTab, setActiveTab] = useState('inventory')
   const [staffShifts, setStaffShifts] = useState(null)
   const [orders, setOrders] = useState(null)
-  const [profit, setProfit] = useState(null)
-  const [profitError, setProfitError] = useState(null)
-  // Inventory: API data + local overrides
-  const [inventory, setInventory] = useState(null)
-  const [inventoryError, setInventoryError] = useState(null)
+  const [inventoryRaw, setInventoryRaw] = useState(null)
   const [localStock, setLocalStock] = useState({})
 
   useEffect(() => {
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
       setStaffShifts(snap.docs.map((d) => d.data()))
     })
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
-    const unsubOrders = onSnapshot(recentOrders, (snap) => {
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
+    const todayOrders = query(collection(db, 'orders'), where('created_at', '>=', dayStart))
+    const unsubOrders = onSnapshot(todayOrders, (snap) => {
       setOrders(snap.docs.map((d) => d.data()))
     })
-    return () => { unsubShifts(); unsubOrders() }
+    const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
+      setInventoryRaw(snap.docs.map((d) => d.data()))
+    })
+    return () => { unsubShifts(); unsubOrders(); unsubInv() }
   }, [])
 
-  useEffect(() => {
-    api.get('/api/inventory/forecast')
-      .then((data) => { setInventory(data); setLocalStock({}) })
-      .catch(() => setInventoryError(t('common.error')))
-    api.get('/api/profit/summary?range=day')
-      .then(setProfit)
-      .catch(() => setProfitError(t('common.error')))
-  }, [t])
+  // Compute profit from Firestore data (same logic as backend profitController)
+  const profit = useMemo(() => {
+    if (!orders || !staffShifts) return null
+    const revenue = orders.filter((o) => o.status === 'served').reduce((s, o) => s + (o.total_amount || 0), 0)
+    const labor_cost = Math.round(staffShifts.reduce((s, sh) => {
+      const start = toDate(sh.shift_start); const end = toDate(sh.shift_end)
+      if (!start || !end) return s
+      return s + Math.max(0, (end - start) / 3600000) * HOURLY_WAGE_VND
+    }, 0))
+    const food_cost = Math.round(revenue * FOOD_COST_PCT)
+    return { revenue, food_cost, labor_cost, profit: revenue - food_cost - labor_cost }
+  }, [orders, staffShifts])
 
-  const getStock = (item) => localStock[item.sku] !== undefined ? localStock[item.sku] : item.current_stock
+  // Compute stockout forecast from Firestore data (same logic as backend inventoryController)
+  const inventory = useMemo(() => {
+    if (!inventoryRaw) return null
+    const now = Date.now()
+    return inventoryRaw.map((item) => {
+      const hourly = (item.avg_daily_consumption || 0) / 24
+      const hoursLeft = hourly > 0 ? item.current_stock / hourly : null
+      return {
+        ...item,
+        hours_remaining: hoursLeft !== null ? Math.round(hoursLeft * 10) / 10 : null,
+        stockout_at: hoursLeft !== null ? new Date(now + hoursLeft * 3600000) : null,
+        at_risk: hoursLeft !== null && hoursLeft <= 6,
+      }
+    }).sort((a, b) => (a.hours_remaining ?? Infinity) - (b.hours_remaining ?? Infinity))
+  }, [inventoryRaw])
+
+  const getStock = (item) => localStock[item.sku] !== undefined ? localStock[item.sku] : (item.current_stock ?? 0)
 
   function updateStock(sku, newVal) {
     const val = Math.max(0, Math.round(newVal * 10) / 10)
@@ -129,9 +148,7 @@ export default function BackOfHouse() {
       {activeTab === 'inventory' && (
         <div>
           <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.inventory')}</h2>
-          {inventoryError ? (
-            <p style={{ color: 'var(--pp-danger-text)', fontSize: '14px' }}>{inventoryError}</p>
-          ) : inventory === null ? (
+          {inventory === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
           ) : (
             <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
@@ -243,9 +260,7 @@ export default function BackOfHouse() {
           {/* Profit Snapshot */}
           <div>
             <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.profitSnapshot')}</h2>
-            {profitError ? (
-              <p style={{ color: 'var(--pp-danger-text)', fontSize: '14px' }}>{profitError}</p>
-            ) : profit === null ? (
+            {profit === null ? (
               <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '14px' }}>

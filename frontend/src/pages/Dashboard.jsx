@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { api } from '../services/api'
+
+const RANGE_DAYS = { day: 1, week: 7, month: 30 }
 
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
@@ -27,19 +29,18 @@ const card = {
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation()
-  const [orders, setOrders] = useState(null)
   const [insights, setInsights] = useState([])
   const [ackError, setAckError] = useState(null)
   const [revenueRange, setRevenueRange] = useState('day')
-  const [revenueSummary, setRevenueSummary] = useState(null)
-  const [revenueError, setRevenueError] = useState(null)
+  const [rawOrders, setRawOrders] = useState(null)
   const [tables, setTables] = useState(null)
 
   useEffect(() => {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
+    // Load 30 days so we can compute day/week/month ranges client-side
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', monthAgo))
     const unsubOrders = onSnapshot(recentOrders, (snap) => {
-      setOrders(snap.docs.map((d) => d.data()))
+      setRawOrders(snap.docs.map((d) => d.data()))
     })
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
       setTables(snap.docs.map((d) => d.data()))
@@ -50,28 +51,38 @@ export default function Dashboard() {
     return () => { unsubOrders(); unsubTables(); unsubInsights() }
   }, [])
 
-  useEffect(() => {
-    setRevenueError(null)
-    api.get(`/api/profit/summary?range=${revenueRange}`)
-      .then(setRevenueSummary)
-      .catch(() => setRevenueError(t('common.error')))
-  }, [revenueRange, t])
+  // Derive today's orders for covers/avgTicket KPIs
+  const orders = useMemo(() => {
+    if (!rawOrders) return null
+    return rawOrders.filter((o) => {
+      const created = o.created_at?.toDate ? o.created_at.toDate() : o.created_at ? new Date(o.created_at) : null
+      return created && isSameDay(created)
+    })
+  }, [rawOrders])
 
-  if (orders === null || tables === null) {
+  // Revenue for the selected range (computed from Firestore data, no backend needed)
+  const rangeRevenue = useMemo(() => {
+    if (!rawOrders) return null
+    const days = RANGE_DAYS[revenueRange] ?? 1
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    return rawOrders
+      .filter((o) => o.status === 'served' && o.created_at)
+      .filter((o) => {
+        const ts = o.created_at?.toDate ? o.created_at.toDate() : new Date(o.created_at)
+        return ts >= cutoff
+      })
+      .reduce((sum, o) => sum + (o.total_amount || 0), 0)
+  }, [allOrders, revenueRange])
+
+  if (rawOrders === null || tables === null) {
     return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
   }
 
-  const servedToday = orders.filter(
-    (o) => o.status === 'served' && o.served_at && isSameDay(o.served_at.toDate ? o.served_at.toDate() : new Date(o.served_at))
-  )
+  const servedToday = orders.filter((o) => o.status === 'served')
   const todayRevenue = servedToday.reduce((sum, o) => sum + (o.total_amount || 0), 0)
   const covers = servedToday.length
   const avgTicket = covers > 0 ? todayRevenue / covers : 0
   const occupied = tables.filter((tb) => tb.status === 'dining' || tb.status === 'reserved').length
-
-  const vsTypicalPct = revenueSummary && revenueSummary.historical_avg_revenue > 0
-    ? Math.round(((revenueSummary.revenue - revenueSummary.historical_avg_revenue) / revenueSummary.historical_avg_revenue) * 100)
-    : null
 
   // Deduplicate and cap alerts at 3
   const activeInsights = insights.filter((i) => i.status !== 'acted_on')
@@ -108,24 +119,9 @@ export default function Dashboard() {
             ))}
           </div>
           <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('dashboard.todayRevenue')}</p>
-          {revenueError ? (
-            <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginTop: '4px' }}>{revenueError}</p>
-          ) : revenueSummary ? (
-            <>
-              <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
-                {formatVnd(revenueSummary.revenue, i18n.language)}
-              </p>
-              {vsTypicalPct !== null && (
-                <p style={{ fontSize: '12px', marginTop: '2px', color: vsTypicalPct >= 0 ? 'var(--pp-primary)' : 'var(--pp-danger-text)' }}>
-                  {t('dashboard.vsTypical', { pct: vsTypicalPct >= 0 ? `+${vsTypicalPct}` : vsTypicalPct })}
-                </p>
-              )}
-            </>
-          ) : (
-            <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
-              {formatVnd(todayRevenue, i18n.language)}
-            </p>
-          )}
+          <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
+            {rangeRevenue !== null ? formatVnd(rangeRevenue, i18n.language) : '…'}
+          </p>
         </div>
 
         <div style={card}>

@@ -6,8 +6,7 @@ import { api } from '../services/api'
 
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
-    style: 'currency',
-    currency: 'VND',
+    style: 'currency', currency: 'VND',
   }).format(amount)
 }
 
@@ -20,294 +19,315 @@ function toDate(value) {
   return value.toDate ? value.toDate() : new Date(value)
 }
 
+const tabBtn = (active) => ({
+  padding: '10px 20px',
+  border: 'none',
+  borderBottom: active ? '2px solid var(--pp-primary)' : '2px solid transparent',
+  background: 'transparent',
+  color: active ? 'var(--pp-primary)' : 'var(--pp-text-muted)',
+  fontWeight: active ? 700 : 400,
+  fontSize: '14px',
+  cursor: 'pointer',
+  transition: 'all 0.15s',
+})
+
+const card = {
+  background: 'var(--pp-card-bg)',
+  border: '1px solid var(--pp-border)',
+  borderRadius: '10px',
+  padding: '18px 20px',
+}
+
+const STATIC_SUPPLIERS = [
+  { id: 1, name: 'Chị Lan — Chợ Hôm', items: 'Thịt bò, Xương heo', lastDelivery: '2026-06-24', reliability: 95 },
+  { id: 2, name: 'Anh Tuấn — Chợ Đồng Xuân', items: 'Rau, Hành lá, Gia vị', lastDelivery: '2026-06-23', reliability: 82 },
+  { id: 3, name: 'Cty Minh Tâm', items: 'Bánh phở, Bún', lastDelivery: '2026-06-22', reliability: 68 },
+]
+
+const STATIC_CHANNELS = [
+  { name_vi: 'Tại bàn', name_en: 'Dine-in', orders: 48, revenue: 6240000 },
+  { name_vi: 'Mang về', name_en: 'Takeaway', orders: 15, revenue: 1350000 },
+  { name_vi: 'GrabFood', name_en: 'GrabFood', orders: 22, revenue: 2090000 },
+  { name_vi: 'ShopeeFood', name_en: 'ShopeeFood', orders: 9, revenue: 855000 },
+]
+
 const OVERLOAD_QUEUE_DEPTH = 5
 
 export default function BackOfHouse() {
   const { t, i18n } = useTranslation()
-  const [inventory, setInventory] = useState(null)
-  const [inventoryError, setInventoryError] = useState(null)
-  const [kitchenQueue, setKitchenQueue] = useState(null)
+  const [activeTab, setActiveTab] = useState('inventory')
   const [staffShifts, setStaffShifts] = useState(null)
   const [orders, setOrders] = useState(null)
   const [profit, setProfit] = useState(null)
   const [profitError, setProfitError] = useState(null)
-  const [suppliers] = useState([
-    { id: 1, name: 'Chị Lan — Chợ Hôm', items: 'Thịt bò, Xương heo', lastDelivery: '2026-06-24', reliability: 95 },
-    { id: 2, name: 'Anh Tuấn — Chợ Đồng Xuân', items: 'Rau, Hành lá, Gia vị', lastDelivery: '2026-06-23', reliability: 82 },
-    { id: 3, name: 'Cty Minh Tâm', items: 'Bánh phở, Bún', lastDelivery: '2026-06-22', reliability: 68 },
-  ])
-  const [channels] = useState([
-    { name_vi: 'Tại bàn', name_en: 'Dine-in', orders: 48, revenue: 6240000 },
-    { name_vi: 'Mang về', name_en: 'Takeaway', orders: 15, revenue: 1350000 },
-    { name_vi: 'GrabFood', name_en: 'GrabFood', orders: 22, revenue: 2090000 },
-    { name_vi: 'ShopeeFood', name_en: 'ShopeeFood', orders: 9, revenue: 855000 },
-  ])
+  // Inventory: API data + local overrides
+  const [inventory, setInventory] = useState(null)
+  const [inventoryError, setInventoryError] = useState(null)
+  const [localStock, setLocalStock] = useState({})
 
   useEffect(() => {
-    const unsubQueue = onSnapshot(collection(db, 'kitchen_queue'), (snap) => {
-      setKitchenQueue(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
       setStaffShifts(snap.docs.map((d) => d.data()))
     })
-    // Scoped to the last 24h — the orders collection also holds 10,000+
-    // historical rows (loaded for analytics baselines), which an
-    // unscoped live listener here would read in full on every mount.
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
     const unsubOrders = onSnapshot(recentOrders, (snap) => {
       setOrders(snap.docs.map((d) => d.data()))
     })
-    return () => {
-      unsubQueue()
-      unsubShifts()
-      unsubOrders()
-    }
+    return () => { unsubShifts(); unsubOrders() }
   }, [])
 
   useEffect(() => {
-    api
-      .get('/api/inventory/forecast')
-      .then(setInventory)
+    api.get('/api/inventory/forecast')
+      .then((data) => { setInventory(data); setLocalStock({}) })
       .catch(() => setInventoryError(t('common.error')))
-    api
-      .get('/api/profit/summary?range=day')
+    api.get('/api/profit/summary?range=day')
       .then(setProfit)
       .catch(() => setProfitError(t('common.error')))
   }, [t])
 
-  if (kitchenQueue === null || staffShifts === null || orders === null) {
-    return <div className="p-6">{t('common.loading')}</div>
+  const getStock = (item) => localStock[item.sku] !== undefined ? localStock[item.sku] : item.current_stock
+
+  function updateStock(sku, newVal) {
+    const val = Math.max(0, Math.round(newVal * 10) / 10)
+    setLocalStock((prev) => ({ ...prev, [sku]: val }))
   }
 
-  const activeQueue = kitchenQueue.filter((q) => q.status !== 'ready')
-  const overloaded = activeQueue.length >= OVERLOAD_QUEUE_DEPTH
-  const pendingQueue = kitchenQueue.filter((q) => q.status === 'pending')
-  const inKitchenQueue = kitchenQueue.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
-  const completedQueue = kitchenQueue.filter((q) => q.status === 'ready')
-
-  const onShiftNow = staffShifts.filter((s) => {
-    const start = toDate(s.shift_start)
-    const end = toDate(s.shift_end)
-    const now = new Date()
-    return start <= now && now <= end
+  const now = new Date()
+  const onShiftNow = (staffShifts || []).filter((s) => {
+    const start = toDate(s.shift_start); const end = toDate(s.shift_end)
+    return start && end && start <= now && now <= end
   })
-  const recentOrderVolume = orders.filter((o) => {
+  const recentOrderVolume = (orders || []).filter((o) => {
     const created = toDate(o.created_at)
     return created && Date.now() - created.getTime() < 2 * 60 * 60 * 1000
   }).length
-  const staffingFlag =
-    recentOrderVolume > onShiftNow.length * 5 ? 'understaffed' : onShiftNow.length > 0 && recentOrderVolume < onShiftNow.length ? 'overstaffed' : 'ok'
+  const staffingFlag = recentOrderVolume > onShiftNow.length * 5 ? 'understaffed'
+    : onShiftNow.length > 0 && recentOrderVolume < onShiftNow.length ? 'overstaffed' : 'ok'
+
+  const tabs = [
+    { id: 'inventory', label: i18n.language === 'vi' ? 'Tồn kho' : 'Inventory' },
+    { id: 'labor',     label: i18n.language === 'vi' ? 'Nhân sự' : 'Labor' },
+    { id: 'supply',    label: i18n.language === 'vi' ? 'Cung ứng & Doanh thu' : 'Supply & Revenue' },
+  ]
 
   return (
-    <div className="space-y-8 p-6">
-      <h1 className="text-2xl font-semibold">{t('nav.backOfHouse')}</h1>
+    <div style={{ padding: '28px 32px' }}>
+      <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--pp-text)', marginBottom: '16px' }}>
+        {t('nav.backOfHouse')}
+      </h1>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.inventory')}</h2>
-        {inventoryError ? (
-          <p className="text-sm text-red-600">{inventoryError}</p>
-        ) : inventory === null ? (
-          <p className="text-sm text-gray-500">{t('common.loading')}</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 text-gray-500">
-                <th className="py-1 pr-2">{t('boh.item')}</th>
-                <th className="py-1 pr-2">{t('boh.stock')}</th>
-                <th className="py-1 pr-2">{t('boh.par')}</th>
-                <th className="py-1">{t('boh.stockoutProjection')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inventory.map((item) => (
-                <tr key={item.sku} className={'border-b border-gray-100 ' + (item.at_risk ? 'bg-red-50' : '')}>
-                  <td className="py-2 pr-2">{i18n.language === 'vi' ? item.name_vi : item.name_en}</td>
-                  <td className="py-2 pr-2">
-                    {item.current_stock} {item.unit}
-                  </td>
-                  <td className="py-2 pr-2 text-gray-500">
-                    {item.par_level} {item.unit}
-                  </td>
-                  <td className={'py-2 ' + (item.at_risk ? 'font-medium text-red-600' : 'text-gray-500')}>
-                    {item.stockout_at
-                      ? t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) })
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--pp-border)', marginBottom: '24px' }}>
+        {tabs.map((tab) => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={tabBtn(activeTab === tab.id)}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.kitchenDisplay')}</h2>
-        {overloaded && (
-          <div className="mb-3 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700">{t('boh.overloadWarning')}</div>
-        )}
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: t('boh.kanban.pending'), items: pendingQueue, border: 'border-gray-300' },
-            { label: t('boh.kanban.inKitchen'), items: inKitchenQueue, border: 'border-purple-300' },
-            { label: t('boh.kanban.completed'), items: completedQueue, border: 'border-green-300' },
-          ].map((col) => (
-            <div key={col.label} className={'rounded-lg border-2 p-3 ' + col.border}>
-              <p className="mb-2 text-sm font-semibold">{col.label} ({col.items.length})</p>
-              <div className="space-y-2">
-                {col.items.map((q) => {
-                  const queuedAt = toDate(q.queued_at)
-                  const elapsedMin = queuedAt ? Math.round((Date.now() - queuedAt.getTime()) / 60000) : 0
-                  const delay = elapsedMin > 20 ? 'red' : elapsedMin > 10 ? 'amber' : 'green'
-                  return (
-                    <div
-                      key={q.id}
-                      className={
-                        'rounded border p-2 text-xs ' +
-                        (delay === 'red' ? 'border-red-300 bg-red-50' :
-                         delay === 'amber' ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200')
-                      }
-                    >
-                      <p className="font-medium">{q.item_sku}</p>
-                      <p className="text-gray-500">{q.station}</p>
-                      <p className={delay === 'red' ? 'font-medium text-red-600' : 'text-gray-500'}>
-                        {t('boh.elapsedMin', { min: elapsedMin })}
-                      </p>
-                    </div>
-                  )
-                })}
-                {col.items.length === 0 && <p className="text-xs text-gray-400">—</p>}
+      {/* ── Tab A: Inventory ── */}
+      {activeTab === 'inventory' && (
+        <div>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.inventory')}</h2>
+          {inventoryError ? (
+            <p style={{ color: 'var(--pp-danger-text)', fontSize: '14px' }}>{inventoryError}</p>
+          ) : inventory === null ? (
+            <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
+          ) : (
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
+                    {[t('boh.item'), t('boh.stock'), t('boh.par'), t('boh.stockoutProjection'), i18n.language === 'vi' ? 'Cập nhật' : 'Update'].map((h) => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventory.map((item) => {
+                    const stock = getStock(item)
+                    const parLevel = item.par_level
+                    const rowStatus = stock <= 0 ? 'critical' : stock < parLevel * 0.3 ? 'critical' : stock < parLevel * 0.6 ? 'warning' : 'ok'
+                    return (
+                      <tr key={item.sku} style={{
+                        borderBottom: '1px solid var(--pp-border)',
+                        background: rowStatus === 'critical' ? 'var(--pp-danger-bg)' : rowStatus === 'warning' ? 'var(--pp-warning-bg)' : 'transparent',
+                      }}>
+                        <td style={{ padding: '12px' }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</td>
+                        <td style={{ padding: '12px' }}>{stock} {item.unit}</td>
+                        <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{parLevel} {item.unit}</td>
+                        <td style={{ padding: '12px', color: rowStatus === 'critical' ? 'var(--pp-danger-text)' : 'var(--pp-text-muted)', fontWeight: rowStatus === 'critical' ? 600 : 400 }}>
+                          {item.stockout_at ? t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) }) : '—'}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button onClick={() => updateStock(item.sku, stock - 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>−</button>
+                            <input type="number" value={stock} step="0.5" min="0"
+                              onChange={(e) => updateStock(item.sku, parseFloat(e.target.value) || 0)}
+                              style={{ width: '60px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
+                            />
+                            <button onClick={() => updateStock(item.sku, stock + 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>+</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab B: Labor ── */}
+      {activeTab === 'labor' && (
+        <div>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.labor')}</h2>
+          {staffShifts === null ? (
+            <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
+          ) : (
+            <>
+              <p style={{ fontSize: '14px', marginBottom: '10px' }}>
+                {t('boh.staffOnShift', { count: onShiftNow.length })} · {t('boh.recentOrders', { count: recentOrderVolume })}
+              </p>
+              {staffingFlag !== 'ok' && (
+                <div style={{ background: 'var(--pp-warning-bg)', border: '1px solid var(--pp-warning-border)', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', color: 'var(--pp-warning-text)', marginBottom: '14px', display: 'inline-block' }}>
+                  {t(`boh.staffingFlag.${staffingFlag}`)}
+                </div>
+              )}
+              <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
+                      {[i18n.language === 'vi' ? 'Nhân viên' : 'Staff', i18n.language === 'vi' ? 'Vai trò' : 'Role', i18n.language === 'vi' ? 'Ca làm' : 'Shift', i18n.language === 'vi' ? 'Trạng thái' : 'Status'].map((h) => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffShifts.map((s) => {
+                      const isOn = onShiftNow.some((o) => o.staff_id === s.staff_id)
+                      const start = toDate(s.shift_start); const end = toDate(s.shift_end)
+                      return (
+                        <tr key={s.staff_id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
+                          <td style={{ padding: '12px', fontWeight: 500 }}>{s.name}</td>
+                          <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{s.role}</td>
+                          <td style={{ padding: '12px', color: 'var(--pp-text-muted)', fontSize: '13px' }}>
+                            {start && end ? `${formatTime(start, i18n.language)} – ${formatTime(end, i18n.language)}` : '—'}
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <span style={{
+                              borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500,
+                              background: isOn ? 'var(--pp-success-bg)' : 'var(--pp-neutral-bg)',
+                              color: isOn ? 'var(--pp-success-text)' : 'var(--pp-neutral-text)',
+                            }}>{isOn ? t('boh.shiftStatus.on') : t('boh.shiftStatus.off')}</span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          ))}
+              <div style={{ marginTop: '14px', background: 'var(--pp-warning-bg)', border: '1px solid var(--pp-warning-border)', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', color: 'var(--pp-warning-text)' }}>
+                {t('boh.laborAiForecast')}
+              </div>
+            </>
+          )}
         </div>
-      </section>
+      )}
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.labor')}</h2>
-        <p className="mb-2 text-sm">
-          {t('boh.staffOnShift', { count: onShiftNow.length })} · {t('boh.recentOrders', { count: recentOrderVolume })}
-        </p>
-        {staffingFlag !== 'ok' && (
-          <div className="mb-3 inline-block rounded-md bg-yellow-100 px-3 py-1 text-sm text-yellow-700">
-            {t(`boh.staffingFlag.${staffingFlag}`)}
+      {/* ── Tab C: Supply & Revenue ── */}
+      {activeTab === 'supply' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+
+          {/* Profit Snapshot */}
+          <div>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.profitSnapshot')}</h2>
+            {profitError ? (
+              <p style={{ color: 'var(--pp-danger-text)', fontSize: '14px' }}>{profitError}</p>
+            ) : profit === null ? (
+              <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '14px' }}>
+                {[
+                  { label: t('dashboard.todayRevenue'), value: formatVnd(profit.revenue, i18n.language) },
+                  { label: t('boh.foodCost'),   value: formatVnd(profit.food_cost, i18n.language) },
+                  { label: t('boh.laborCost'),  value: formatVnd(profit.labor_cost, i18n.language) },
+                  { label: t('boh.profit'),     value: formatVnd(profit.profit, i18n.language) },
+                ].map((item) => (
+                  <div key={item.label} style={card}>
+                    <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: '0 0 4px' }}>{item.label}</p>
+                    <p style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-        <ul className="space-y-1 text-sm">
-          {staffShifts.map((s) => {
-            const isOnShift = onShiftNow.some((o) => o.staff_id === s.staff_id)
-            return (
-              <li key={s.staff_id} className="flex justify-between border-b border-gray-100 py-1">
-                <span>
-                  {s.name} · {s.role}
-                  {s.shift_start && s.shift_end && (
-                    <span className="ml-2 text-gray-400">
-                      {formatTime(toDate(s.shift_start), i18n.language)}–{formatTime(toDate(s.shift_end), i18n.language)}
-                    </span>
-                  )}
-                </span>
-                <span className={
-                  'rounded px-2 py-0.5 text-xs ' +
-                  (isOnShift ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')
-                }>
-                  {isOnShift ? t('boh.shiftStatus.on') : t('boh.shiftStatus.off')}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-        <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-700">
-          {t('boh.laborAiForecast')}
-        </div>
-      </section>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.profitSnapshot')}</h2>
-        {profitError ? (
-          <p className="text-sm text-red-600">{profitError}</p>
-        ) : profit === null ? (
-          <p className="text-sm text-gray-500">{t('common.loading')}</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div className="rounded-lg border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">{t('dashboard.todayRevenue')}</p>
-              <p className="mt-1 text-lg font-semibold">{formatVnd(profit.revenue, i18n.language)}</p>
+          {/* Revenue by Channel */}
+          <div>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.channels')}</h2>
+            <div style={{ background: 'var(--pp-warning-bg)', border: '1px solid var(--pp-warning-border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '14px', color: 'var(--pp-warning-text)' }}>
+              {t('boh.channelAiInsight')}
             </div>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">{t('boh.foodCost')}</p>
-              <p className="mt-1 text-lg font-semibold">{formatVnd(profit.food_cost, i18n.language)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">{t('boh.laborCost')}</p>
-              <p className="mt-1 text-lg font-semibold">{formatVnd(profit.labor_cost, i18n.language)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">{t('boh.profit')}</p>
-              <p className="mt-1 text-lg font-semibold">{formatVnd(profit.profit, i18n.language)}</p>
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
+                    {[t('boh.channelName'), t('boh.channelOrders'), t('boh.channelRevenue')].map((h) => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {STATIC_CHANNELS.map((c) => (
+                    <tr key={c.name_en} style={{ borderBottom: '1px solid var(--pp-border)' }}>
+                      <td style={{ padding: '12px' }}>{i18n.language === 'vi' ? c.name_vi : c.name_en}</td>
+                      <td style={{ padding: '12px' }}>{c.orders}</td>
+                      <td style={{ padding: '12px' }}>{formatVnd(c.revenue, i18n.language)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        )}
-      </section>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.channels')}</h2>
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-          {t('boh.channelAiInsight')}
+          {/* Supply Monitoring */}
+          <div>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.supply')}</h2>
+            <div style={{ background: 'var(--pp-info-bg)', border: '1px solid var(--pp-info-border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '14px', color: 'var(--pp-info-text)' }}>
+              {t('boh.supplyAiForecast')}
+            </div>
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
+                    {[t('boh.supplier'), t('boh.items'), t('boh.lastDelivery'), t('boh.reliability')].map((h) => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {STATIC_SUPPLIERS.map((s) => (
+                    <tr key={s.id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
+                      <td style={{ padding: '12px', fontWeight: 500 }}>{s.name}</td>
+                      <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{s.items}</td>
+                      <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{s.lastDelivery}</td>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{
+                          borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 600,
+                          background: s.reliability >= 90 ? 'var(--pp-success-bg)' : s.reliability >= 70 ? 'var(--pp-warning-bg)' : 'var(--pp-danger-bg)',
+                          color: s.reliability >= 90 ? 'var(--pp-success-text)' : s.reliability >= 70 ? 'var(--pp-warning-text)' : 'var(--pp-danger-text)',
+                        }}>{s.reliability}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 text-gray-500">
-              <th className="py-1 pr-2">{t('boh.channelName')}</th>
-              <th className="py-1 pr-2">{t('boh.channelOrders')}</th>
-              <th className="py-1">{t('boh.channelRevenue')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {channels.map((c) => (
-              <tr key={c.name_en} className="border-b border-gray-100">
-                <td className="py-2 pr-2">{i18n.language === 'vi' ? c.name_vi : c.name_en}</td>
-                <td className="py-2 pr-2">{c.orders}</td>
-                <td className="py-2">{formatVnd(c.revenue, i18n.language)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('boh.supply')}</h2>
-        <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-          {t('boh.supplyAiForecast')}
-        </div>
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 text-gray-500">
-              <th className="py-1 pr-2">{t('boh.supplier')}</th>
-              <th className="py-1 pr-2">{t('boh.items')}</th>
-              <th className="py-1 pr-2">{t('boh.lastDelivery')}</th>
-              <th className="py-1">{t('boh.reliability')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {suppliers.map((s) => (
-              <tr key={s.id} className="border-b border-gray-100">
-                <td className="py-2 pr-2 font-medium">{s.name}</td>
-                <td className="py-2 pr-2 text-gray-500">{s.items}</td>
-                <td className="py-2 pr-2 text-gray-500">{s.lastDelivery}</td>
-                <td className="py-2">
-                  <span className={
-                    'rounded px-2 py-0.5 text-xs font-medium ' +
-                    (s.reliability >= 90 ? 'bg-green-100 text-green-700' :
-                     s.reliability >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700')
-                  }>
-                    {s.reliability}%
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      )}
     </div>
   )
 }

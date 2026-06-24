@@ -7,34 +7,35 @@ import { api } from '../services/api'
 
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
-    style: 'currency',
-    currency: 'VND',
+    style: 'currency', currency: 'VND',
   }).format(amount)
 }
 
 const isSameDay = (date) => {
   const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
+  return date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate()
-  )
+}
+
+const card = {
+  background: 'var(--pp-card-bg)',
+  border: '1px solid var(--pp-border)',
+  borderRadius: '10px',
+  padding: '18px 20px',
 }
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation()
   const [orders, setOrders] = useState(null)
-  const [tables, setTables] = useState(null)
   const [insights, setInsights] = useState([])
   const [ackError, setAckError] = useState(null)
   const [revenueRange, setRevenueRange] = useState('day')
   const [revenueSummary, setRevenueSummary] = useState(null)
   const [revenueError, setRevenueError] = useState(null)
+  const [tables, setTables] = useState(null)
 
   useEffect(() => {
-    // Scoped to the last 24h — the orders collection also holds 10,000+
-    // historical rows (loaded for analytics baselines), which an
-    // unscoped live listener here would read in full on every mount.
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
     const unsubOrders = onSnapshot(recentOrders, (snap) => {
@@ -46,23 +47,18 @@ export default function Dashboard() {
     const unsubInsights = onSnapshot(collection(db, 'insights'), (snap) => {
       setInsights(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    return () => {
-      unsubOrders()
-      unsubTables()
-      unsubInsights()
-    }
+    return () => { unsubOrders(); unsubTables(); unsubInsights() }
   }, [])
 
   useEffect(() => {
     setRevenueError(null)
-    api
-      .get(`/api/profit/summary?range=${revenueRange}`)
+    api.get(`/api/profit/summary?range=${revenueRange}`)
       .then(setRevenueSummary)
       .catch(() => setRevenueError(t('common.error')))
   }, [revenueRange, t])
 
   if (orders === null || tables === null) {
-    return <div className="p-6">{t('common.loading')}</div>
+    return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
   }
 
   const servedToday = orders.filter(
@@ -71,136 +67,147 @@ export default function Dashboard() {
   const todayRevenue = servedToday.reduce((sum, o) => sum + (o.total_amount || 0), 0)
   const covers = servedToday.length
   const avgTicket = covers > 0 ? todayRevenue / covers : 0
-
   const occupied = tables.filter((tb) => tb.status === 'dining' || tb.status === 'reserved').length
-  const activeInsights = insights.filter((i) => i.status !== 'acted_on')
 
-  const vsTypicalPct =
-    revenueSummary && revenueSummary.historical_avg_revenue > 0
-      ? Math.round(
-          ((revenueSummary.revenue - revenueSummary.historical_avg_revenue) /
-            revenueSummary.historical_avg_revenue) *
-            100
-        )
-      : null
+  const vsTypicalPct = revenueSummary && revenueSummary.historical_avg_revenue > 0
+    ? Math.round(((revenueSummary.revenue - revenueSummary.historical_avg_revenue) / revenueSummary.historical_avg_revenue) * 100)
+    : null
+
+  // Deduplicate and cap alerts at 3
+  const activeInsights = insights.filter((i) => i.status !== 'acted_on')
+  const deduped = activeInsights.reduce((acc, insight) => {
+    const key = (i18n.language === 'vi' ? insight.summary_vi : insight.summary_en) + insight.type
+    const existing = acc.find((a) => a._key === key)
+    if (existing) { existing._count = (existing._count || 1) + 1 }
+    else acc.push({ ...insight, _key: key, _count: 1 })
+    return acc
+  }, [])
+  const dashboardAlerts = deduped.slice(0, 3)
 
   async function handleAcknowledge(id) {
-    try {
-      await api.post(`/api/insights/${id}/acknowledge`)
-    } catch (err) {
-      setAckError(t('common.error'))
-    }
+    try { await api.post(`/api/insights/${id}/acknowledge`) }
+    catch { setAckError(t('common.error')) }
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">{t('nav.dashboard')}</h1>
+    <div style={{ padding: '28px 32px' }}>
+      <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--pp-text)', marginBottom: '24px' }}>
+        {t('nav.dashboard')}
+      </h1>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-gray-200 p-4">
-          <div className="mb-2 flex gap-1">
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '16px', marginBottom: '24px' }}>
+        <div style={card}>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
             {['day', 'week', 'month'].map((r) => (
-              <button
-                key={r}
-                onClick={() => setRevenueRange(r)}
-                className={
-                  'rounded px-2 py-0.5 text-xs ' +
-                  (revenueRange === r ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600')
-                }
-              >
-                {t(`dashboard.range.${r}`)}
-              </button>
+              <button key={r} onClick={() => setRevenueRange(r)} style={{
+                borderRadius: '6px', padding: '2px 8px', fontSize: '11px', border: 'none', cursor: 'pointer',
+                background: revenueRange === r ? 'var(--pp-primary)' : 'var(--pp-neutral-bg)',
+                color: revenueRange === r ? 'white' : 'var(--pp-text-muted)',
+              }}>{t(`dashboard.range.${r}`)}</button>
             ))}
           </div>
-          <p className="text-sm text-gray-500">{t('dashboard.todayRevenue')}</p>
+          <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('dashboard.todayRevenue')}</p>
           {revenueError ? (
-            <p className="mt-1 text-sm text-red-600">{revenueError}</p>
+            <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginTop: '4px' }}>{revenueError}</p>
           ) : revenueSummary ? (
             <>
-              <p className="mt-1 text-xl font-semibold">{formatVnd(revenueSummary.revenue, i18n.language)}</p>
+              <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
+                {formatVnd(revenueSummary.revenue, i18n.language)}
+              </p>
               {vsTypicalPct !== null && (
-                <p className={'mt-1 text-xs ' + (vsTypicalPct >= 0 ? 'text-green-600' : 'text-red-600')}>
+                <p style={{ fontSize: '12px', marginTop: '2px', color: vsTypicalPct >= 0 ? 'var(--pp-primary)' : 'var(--pp-danger-text)' }}>
                   {t('dashboard.vsTypical', { pct: vsTypicalPct >= 0 ? `+${vsTypicalPct}` : vsTypicalPct })}
                 </p>
               )}
             </>
           ) : (
-            <p className="mt-1 text-xl font-semibold">{formatVnd(todayRevenue, i18n.language)}</p>
+            <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
+              {formatVnd(todayRevenue, i18n.language)}
+            </p>
           )}
         </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">{t('dashboard.covers')}</p>
-          <p className="mt-1 text-xl font-semibold">{covers}</p>
+
+        <div style={card}>
+          <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('dashboard.covers')}</p>
+          <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>{covers}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">{t('dashboard.avgTicket')}</p>
-          <p className="mt-1 text-xl font-semibold">{formatVnd(avgTicket, i18n.language)}</p>
+
+        <div style={card}>
+          <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('dashboard.avgTicket')}</p>
+          <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>{formatVnd(avgTicket, i18n.language)}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">{t('dashboard.tableOccupancy')}</p>
-          <p className="mt-1 text-xl font-semibold">
+
+        <div style={card}>
+          <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('dashboard.tableOccupancy')}</p>
+          <p style={{ fontSize: '26px', fontWeight: 700, color: 'var(--pp-text)', margin: '4px 0 0' }}>
             {t('dashboard.tablesOccupied', { occupied, total: tables.length })}
           </p>
         </div>
       </div>
 
       {/* AI Daily Summary */}
-      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
-        <p className="mb-1 text-sm font-semibold text-purple-700">{t('dashboard.aiSummary')}</p>
-        <p className="text-sm text-gray-700">
+      <div style={{
+        background: 'var(--pp-primary-light)',
+        borderLeft: '4px solid var(--pp-primary)',
+        borderRadius: '0 10px 10px 0',
+        padding: '14px 18px',
+        marginBottom: '24px',
+      }}>
+        <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--pp-primary)', marginBottom: '6px' }}>
+          {t('dashboard.aiSummary')}
+        </p>
+        <p style={{ fontSize: '14px', color: 'var(--pp-text)', marginBottom: '6px' }}>
           {i18n.language === 'vi'
             ? `Hôm nay có ${covers} lượt khách, doanh thu ${formatVnd(todayRevenue, i18n.language)}. ${occupied > 0 ? `Hiện có ${occupied} bàn đang sử dụng.` : 'Hiện không có bàn nào đang sử dụng.'} ${activeInsights.length > 0 ? `Có ${activeInsights.length} cảnh báo cần xử lý.` : 'Không có cảnh báo nào.'}`
             : `Today: ${covers} covers, revenue ${formatVnd(todayRevenue, i18n.language)}. ${occupied > 0 ? `${occupied} tables currently occupied.` : 'No tables currently occupied.'} ${activeInsights.length > 0 ? `${activeInsights.length} alert(s) need attention.` : 'No active alerts.'}`
           }
         </p>
-        <p className="mt-2 text-xs text-purple-600">{t('dashboard.rootCause')}</p>
+        <p style={{ fontSize: '13px', color: 'var(--pp-primary-text)' }}>{t('dashboard.rootCause')}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
-        {tables.map((tb) => (
-          <div
-            key={tb.table_id}
-            className={
-              'rounded-md p-3 text-center text-sm font-medium ' +
-              {
-                open: 'bg-gray-100 text-gray-600',
-                reserved: 'bg-yellow-100 text-yellow-700',
-                dining: 'bg-purple-100 text-purple-700',
-                cleanup: 'bg-orange-100 text-orange-700',
-              }[tb.status]
-            }
-          >
-            <div>{tb.table_id}</div>
-            <div className="text-xs">{t(`dashboard.status.${tb.status}`)}</div>
-          </div>
-        ))}
-      </div>
-
+      {/* Active Alerts */}
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{t('dashboard.alerts')}</h2>
-          <Link to="/insights" className="text-sm text-purple-600">
-            {t('insights.title')}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('dashboard.alerts')}</h2>
+          <Link to="/insights" style={{ fontSize: '14px', color: 'var(--pp-primary)', textDecoration: 'none' }}>
+            {t('insights.title')} →
           </Link>
         </div>
-        {ackError && <p className="mb-2 text-sm text-red-600">{ackError}</p>}
-        {activeInsights.length === 0 ? (
-          <p className="text-sm text-gray-500">{t('dashboard.noAlerts')}</p>
+        {ackError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '8px' }}>{ackError}</p>}
+        {dashboardAlerts.length === 0 ? (
+          <p style={{ fontSize: '14px', color: 'var(--pp-text-muted)' }}>{t('dashboard.noAlerts')}</p>
         ) : (
-          <div className="space-y-2">
-            {activeInsights.map((insight) => (
-              <div key={insight.id} className="rounded-lg border border-gray-200 p-3">
-                <p className="text-sm">{i18n.language === 'vi' ? insight.summary_vi : insight.summary_en}</p>
-                {insight.status === 'new' && (
-                  <button
-                    onClick={() => handleAcknowledge(insight.id)}
-                    className="mt-2 rounded border border-gray-300 px-3 py-1 text-xs"
-                  >
-                    {t('insights.acknowledge')}
-                  </button>
-                )}
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {dashboardAlerts.map((insight) => {
+              const isCritical = insight.severity === 'critical'
+              return (
+                <div key={insight.id} style={{
+                  background: isCritical ? 'var(--pp-danger-bg)' : 'var(--pp-warning-bg)',
+                  border: `1px solid ${isCritical ? 'var(--pp-danger-border)' : 'var(--pp-warning-border)'}`,
+                  borderRadius: '10px',
+                  padding: '14px 16px',
+                }}>
+                  <p style={{ fontSize: '11px', color: 'var(--pp-text-muted)', marginBottom: '4px' }}>
+                    {t(`insights.type.${insight.type}`)} · {t(`insights.severity.${insight.severity}`)} · {t('insights.statusLabel.new')}
+                  </p>
+                  <p style={{ fontSize: '14px', color: 'var(--pp-text)', margin: 0 }}>
+                    {i18n.language === 'vi' ? insight.summary_vi : insight.summary_en}
+                    {insight._count > 1 && <span style={{ color: 'var(--pp-text-muted)', marginLeft: '6px' }}>(×{insight._count})</span>}
+                  </p>
+                  {insight.status === 'new' && (
+                    <button
+                      onClick={() => handleAcknowledge(insight.id)}
+                      style={{
+                        marginTop: '8px', border: '1px solid var(--pp-border)', background: 'white',
+                        borderRadius: '99px', padding: '4px 12px', fontSize: '12px', cursor: 'pointer',
+                        color: 'var(--pp-text)',
+                      }}
+                    >{t('insights.acknowledge')}</button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

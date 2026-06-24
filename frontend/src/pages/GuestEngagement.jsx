@@ -10,17 +10,8 @@ function toDate(value) {
 
 function formatDateTime(date, lang) {
   return date.toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
-}
-
-const STATUS_COLORS = {
-  confirmed: 'bg-purple-100 text-purple-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-gray-100 text-gray-500',
 }
 
 function getLoyaltyTier(visits) {
@@ -30,36 +21,26 @@ function getLoyaltyTier(visits) {
 }
 function getLoyaltyPoints(visits) { return visits * 50 }
 
+const TIER_STYLES = {
+  vang: { background: 'var(--pp-gold-bg)',   color: 'var(--pp-gold-text)',   border: '1px solid var(--pp-gold-border)' },
+  bac:  { background: 'var(--pp-silver-bg)', color: 'var(--pp-silver-text)', border: '1px solid var(--pp-silver-border)' },
+  dong: { background: 'var(--pp-bronze-bg)', color: 'var(--pp-bronze-text)', border: '1px solid var(--pp-bronze-border)' },
+}
+
 export default function GuestEngagement() {
   const { t, i18n } = useTranslation()
   const [reservations, setReservations] = useState(null)
-  const [localReservations, setLocalReservations] = useState([])
-  const [form, setForm] = useState({ name: '', partySize: 2, time: '18:00' })
-  const [formOpen, setFormOpen] = useState(false)
-  const [formError, setFormError] = useState(null)
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'reservations'), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (toDate(a.reservation_time)?.getTime() ?? 0) - (toDate(b.reservation_time)?.getTime() ?? 0))
-      setReservations(list)
+      setReservations(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return unsub
   }, [])
 
   if (reservations === null) {
-    return <div className="p-6">{t('common.loading')}</div>
+    return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
   }
-
-  const upcoming = reservations.filter((r) => {
-    const time = toDate(r.reservation_time)
-    return r.status === 'confirmed' && time && time.getTime() >= Date.now()
-  })
-
-  const allUpcoming = [
-    ...upcoming,
-    ...localReservations.filter((r) => r.status === 'confirmed'),
-  ]
 
   const loyaltyMap = new Map()
   for (const r of reservations) {
@@ -75,145 +56,53 @@ export default function GuestEngagement() {
     .sort((a, b) => b.visits - a.visits)
 
   return (
-    <div className="space-y-8 p-6">
-      <h1 className="text-2xl font-semibold">{t('nav.guestEngagement')}</h1>
+    <div style={{ padding: '28px 32px' }}>
+      <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--pp-text)', marginBottom: '24px' }}>
+        {t('nav.guestEngagement')}
+      </h1>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('guest.reservations')}</h2>
+        <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '14px' }}>{t('guest.loyalty')}</h2>
 
-        <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-          {t('guest.peakForecast')}
-        </div>
-
-        <div className="mb-3 flex justify-end">
-          <button
-            onClick={() => setFormOpen((f) => !f)}
-            className="rounded bg-purple-600 px-3 py-1 text-sm text-white"
-          >
-            {t('guest.addReservation')}
-          </button>
-        </div>
-
-        {formOpen && (
-          <div className="mb-4 space-y-2 rounded-lg border border-gray-200 p-3">
-            {formError && <p className="text-xs text-red-600">{formError}</p>}
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
-                placeholder={t('guest.guestNameLabel')}
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              />
-              <input
-                type="number"
-                min="1"
-                max="20"
-                className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                placeholder={t('guest.partySizeLabel')}
-                value={form.partySize}
-                onChange={(e) => setForm((f) => ({ ...f, partySize: Number(e.target.value) }))}
-              />
-              <input
-                className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
-                placeholder={t('guest.timeLabel')}
-                value={form.time}
-                onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-              />
-            </div>
-            <button
-              onClick={() => {
-                if (!form.name.trim()) { setFormError('Vui lòng nhập tên khách'); return }
-                setLocalReservations((prev) => [
-                  ...prev,
-                  { id: Date.now(), guest_name: form.name, party_size: form.partySize, time: form.time, status: 'confirmed' },
-                ])
-                setForm({ name: '', partySize: 2, time: '18:00' })
-                setFormOpen(false)
-                setFormError(null)
-              }}
-              className="rounded bg-purple-600 px-3 py-1 text-sm text-white"
-            >
-              {t('common.save')}
-            </button>
-          </div>
-        )}
-
-        {allUpcoming.length === 0 ? (
-          <p className="text-sm text-gray-500">{t('guest.noUpcoming')}</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 text-gray-500">
-                <th className="py-1 pr-2">{t('guest.guestName')}</th>
-                <th className="py-1 pr-2">{t('guest.partySize')}</th>
-                <th className="py-1 pr-2">{t('guest.time')}</th>
-                <th className="py-1">{t('guest.status')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allUpcoming.map((r) => (
-                <tr key={r.id} className="border-b border-gray-100">
-                  <td className="py-2 pr-2">{r.guest_name}</td>
-                  <td className="py-2 pr-2">{r.party_size}</td>
-                  <td className="py-2 pr-2">
-                    {r.reservation_time
-                      ? formatDateTime(toDate(r.reservation_time), i18n.language)
-                      : r.time}
-                  </td>
-                  <td className="py-2">
-                    <span className={'rounded px-2 py-0.5 text-xs ' + (STATUS_COLORS[r.status] || 'bg-purple-100 text-purple-700')}>
-                      {t(`guest.statusLabel.${r.status}`)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">{t('guest.loyalty')}</h2>
         {topGuests.length === 0 ? (
-          <p className="text-sm text-gray-500">{t('guest.noRepeatGuests')}</p>
+          <p style={{ fontSize: '14px', color: 'var(--pp-text-muted)' }}>{t('guest.noRepeatGuests')}</p>
         ) : (
           <>
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-gray-500">
-                  <th className="py-1 pr-2">{t('guest.guestName')}</th>
-                  <th className="py-1 pr-2">{t('guest.visitFrequency')}</th>
-                  <th className="py-1 pr-2">{t('guest.loyaltyPoints')}</th>
-                  <th className="py-1 pr-2">{t('guest.loyaltyTier')}</th>
-                  <th className="py-1">{t('guest.lastVisit')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topGuests.map((g) => {
-                  const tier = getLoyaltyTier(g.visits)
-                  return (
-                    <tr key={g.guest_name} className="border-b border-gray-100">
-                      <td className="py-2 pr-2 font-medium">{g.guest_name}</td>
-                      <td className="py-2 pr-2">{t('guest.visits', { count: g.visits })}</td>
-                      <td className="py-2 pr-2">{getLoyaltyPoints(g.visits)}</td>
-                      <td className="py-2 pr-2">
-                        <span className={
-                          'rounded px-2 py-0.5 text-xs ' +
-                          (tier === 'vang' ? 'bg-yellow-100 text-yellow-700' :
-                           tier === 'bac' ? 'bg-gray-100 text-gray-600' :
-                           'bg-orange-100 text-orange-700')
-                        }>
-                          {t(`guest.loyaltyTiers.${tier}`)}
-                        </span>
-                      </td>
-                      <td className="py-2">{g.lastVisit ? formatDateTime(g.lastVisit, i18n.language) : '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            <p className="mt-2 text-sm text-gray-500">{t('guest.totalMembers', { count: topGuests.length })}</p>
-            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden', marginBottom: '14px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
+                    {[t('guest.guestName'), t('guest.visitFrequency'), t('guest.loyaltyPoints'), t('guest.loyaltyTier'), t('guest.lastVisit')].map((h) => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {topGuests.map((g) => {
+                    const tier = getLoyaltyTier(g.visits)
+                    return (
+                      <tr key={g.guest_name} style={{ borderBottom: '1px solid var(--pp-border)' }}>
+                        <td style={{ padding: '12px', fontWeight: 500 }}>{g.guest_name}</td>
+                        <td style={{ padding: '12px' }}>{t('guest.visits', { count: g.visits })}</td>
+                        <td style={{ padding: '12px' }}>{getLoyaltyPoints(g.visits)}</td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ ...TIER_STYLES[tier], borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
+                            {t(`guest.loyaltyTiers.${tier}`)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px', color: 'var(--pp-text-muted)', fontSize: '13px' }}>
+                          {g.lastVisit ? formatDateTime(g.lastVisit, i18n.language) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
+              {t('guest.totalMembers', { count: topGuests.length })}
+            </p>
+            <div style={{ background: 'var(--pp-warning-bg)', border: '1px solid var(--pp-warning-border)', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', color: 'var(--pp-warning-text)' }}>
               {t('guest.atRiskInsight')}
             </div>
           </>

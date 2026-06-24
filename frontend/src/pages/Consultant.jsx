@@ -14,15 +14,15 @@ function formatTime(value) {
 
 function TypingDots() {
   return (
-    <div className="flex items-center gap-1 px-1 py-2">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-2 w-2 rounded-full bg-gray-400"
-          style={{ animation: `bounce 1.2s ${i * 0.2}s infinite` }}
-        />
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '10px 14px', background: 'white', border: '1px solid var(--pp-border)', borderRadius: '4px 18px 18px 18px', width: 'fit-content' }}>
+      {[0, 0.2, 0.4].map((delay, i) => (
+        <span key={i} style={{
+          width: '7px', height: '7px', borderRadius: '50%',
+          background: 'var(--pp-primary)',
+          animation: `scaleBounce 1.2s ${delay}s infinite`,
+          display: 'inline-block',
+        }} />
       ))}
-      <style>{`@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }`}</style>
     </div>
   )
 }
@@ -43,123 +43,95 @@ export default function Consultant() {
 
   useEffect(() => {
     if (!user) return
-    const q = query(
-      collection(db, 'consultant_conversations', user.uid, 'messages'),
-      orderBy('created_at', 'asc')
-    )
-    const unsub = onSnapshot(q, (snap) => {
+    const q = query(collection(db, 'consultant_conversations', user.uid, 'messages'), orderBy('created_at', 'asc'))
+    return onSnapshot(q, (snap) => {
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    return unsub
   }, [user])
 
-  // Auto-scroll to bottom whenever messages change or AI starts/stops typing
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
-  if (role && !['manager', 'admin'].includes(role)) {
-    return <Navigate to="/" replace />
-  }
+  if (role && !['manager', 'admin'].includes(role)) return <Navigate to="/" replace />
 
   async function send(text) {
     if (!text.trim() || sending) return
-    setSending(true)
-    setError(null)
-    setInput('')
-    try {
-      await api.post('/api/consultant/messages', { message: text })
-    } catch (err) {
-      setError(t('consultant.error'))
-    } finally {
-      setSending(false)
-      inputRef.current?.focus()
-    }
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    await send(input)
+    setSending(true); setError(null); setInput('')
+    try { await api.post('/api/consultant/messages', { message: text }) }
+    catch { setError(t('consultant.error')) }
+    finally { setSending(false); inputRef.current?.focus() }
   }
 
   async function handleRegenerate() {
-    if (!messages) return
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    const lastUser = [...(messages || [])].reverse().find((m) => m.role === 'user')
     if (lastUser) await send(lastUser.content)
   }
 
   async function handleClear() {
     if (!window.confirm(t('consultant.clearConfirm'))) return
     setClearing(true)
-    setError(null)
-    try {
-      await api.delete('/api/consultant/messages')
-    } catch {
-      setError(t('common.error'))
-    } finally {
-      setClearing(false)
-    }
+    try { await api.delete('/api/consultant/messages') }
+    catch { setError(t('common.error')) }
+    finally { setClearing(false) }
   }
 
   function handleCopy(id, content) {
     navigator.clipboard.writeText(content).then(() => {
-      setCopiedId(id)
-      setTimeout(() => setCopiedId(null), 1500)
+      setCopiedId(id); setTimeout(() => setCopiedId(null), 1500)
     })
   }
 
   const lastAssistantMsg = messages?.filter((m) => m.role === 'assistant').slice(-1)[0]
 
   return (
-    <div className="flex h-[calc(100vh-57px)] flex-col p-6">
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px)', padding: '24px 32px' }}>
+
       {/* Header */}
-      <div className="mb-3 flex items-center justify-between">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', flexShrink: 0 }}>
         <div>
-          <h1 className="text-2xl font-semibold">{t('consultant.title')}</h1>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, margin: '0 0 2px' }}>{t('consultant.title')}</h1>
           {messages !== null && messages.length > 0 && (
-            <p className="text-xs text-gray-400">{t('consultant.messageCount', { count: messages.length })}</p>
+            <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('consultant.messageCount', { count: messages.length })}</p>
           )}
         </div>
         {messages !== null && messages.length > 0 && (
-          <button
-            onClick={handleClear}
-            disabled={clearing}
-            className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
+          <button onClick={handleClear} disabled={clearing} style={{ border: '1px solid var(--pp-border)', background: 'white', borderRadius: '99px', padding: '6px 14px', fontSize: '12px', color: 'var(--pp-text-muted)', cursor: 'pointer', opacity: clearing ? 0.5 : 1 }}>
             {clearing ? '…' : t('consultant.clearChat')}
           </button>
         )}
       </div>
 
-      {/* Message list */}
-      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', paddingRight: '4px' }}>
         {messages === null ? (
-          <p className="text-sm text-gray-500">{t('common.loading')}</p>
+          <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-gray-500">{t('consultant.empty')}</p>
+          <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('consultant.empty')}</p>
         ) : (
           messages.map((m) => (
-            <div
-              key={m.id}
-              className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}
-            >
-              <div className={'group relative max-w-2xl ' + (m.role === 'user' ? 'items-end' : 'items-start') + ' flex flex-col'}>
-                <div
-                  className={
-                    'rounded-lg px-3 py-2 text-sm ' +
-                    (m.role === 'user' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-800')
-                  }
-                >
+            <div key={m.id} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: '10px', alignItems: 'flex-end', gap: '8px' }}>
+              {m.role === 'assistant' && (
+                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--pp-primary-light)', border: '1px solid var(--pp-primary-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>
+                  🤖
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div style={m.role === 'user' ? {
+                  maxWidth: '420px', padding: '10px 14px',
+                  background: 'var(--pp-primary)', color: 'white',
+                  borderRadius: '18px 18px 4px 18px', fontSize: '14px', lineHeight: 1.5,
+                } : {
+                  maxWidth: '520px', padding: '10px 14px',
+                  background: 'white', color: 'var(--pp-text)',
+                  border: '1px solid var(--pp-border)',
+                  borderRadius: '4px 18px 18px 18px', fontSize: '14px', lineHeight: 1.6,
+                }}>
                   {m.content}
                 </div>
-
-                {/* Timestamp + copy button */}
-                <div className={'mt-0.5 flex items-center gap-2 ' + (m.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                  <span className="text-xs text-gray-400">{formatTime(m.created_at)}</span>
-                  <button
-                    onClick={() => handleCopy(m.id, m.content)}
-                    className="hidden rounded px-1 text-xs text-gray-400 hover:text-gray-600 group-hover:block"
-                  >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--pp-text-hint)' }}>{formatTime(m.created_at)}</span>
+                  <button onClick={() => handleCopy(m.id, m.content)} style={{ fontSize: '11px', color: 'var(--pp-text-hint)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}>
                     {copiedId === m.id ? t('consultant.copied') : t('consultant.copy')}
                   </button>
                 </div>
@@ -168,67 +140,58 @@ export default function Consultant() {
           ))
         )}
 
-        {/* Typing indicator */}
         {sending && (
-          <div className="flex justify-start">
-            <div className="rounded-lg bg-gray-100 px-3">
-              <TypingDots />
-            </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', marginBottom: '10px' }}>
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--pp-primary-light)', border: '1px solid var(--pp-primary-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>🤖</div>
+            <TypingDots />
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginTop: '6px' }}>{error}</p>}
 
-      {/* Regenerate button — only when last message is from assistant and not currently sending */}
+      {/* Regenerate */}
       {lastAssistantMsg && !sending && (
-        <div className="mt-2 flex justify-center">
-          <button
-            onClick={handleRegenerate}
-            className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-500 hover:bg-gray-50"
-          >
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px' }}>
+          <button onClick={handleRegenerate} style={{ border: '1px solid var(--pp-border)', background: 'white', borderRadius: '99px', padding: '5px 14px', fontSize: '12px', color: 'var(--pp-text-muted)', cursor: 'pointer' }}>
             ↺ {t('consultant.regenerate')}
           </button>
         </div>
       )}
 
-      {/* Quick prompt chips */}
-      {Array.isArray(quickPrompts) && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {quickPrompts.map((q) => (
-            <button
-              key={q}
-              onClick={() => send(q)}
-              disabled={sending}
-              className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Input */}
-      <form onSubmit={handleSubmit} className="mt-3 flex gap-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={t('consultant.placeholder')}
-          className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
-          disabled={sending}
-        />
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="rounded bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {t('consultant.send')}
-        </button>
-      </form>
+      {/* Bottom bar — chips + input */}
+      <div style={{ flexShrink: 0, background: 'var(--pp-page-bg)', paddingTop: '10px', borderTop: '1px solid var(--pp-border)', marginTop: '8px' }}>
+        {Array.isArray(quickPrompts) && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+            {quickPrompts.map((q) => (
+              <button key={q} onClick={() => send(q)} disabled={sending} style={{
+                padding: '6px 14px', borderRadius: '99px',
+                border: '1px solid var(--pp-primary-border)',
+                background: 'var(--pp-primary-light)',
+                color: 'var(--pp-primary-text)',
+                fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
+                opacity: sending ? 0.5 : 1,
+              }}>{q}</button>
+            ))}
+          </div>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); send(input) }} style={{ display: 'flex', gap: '8px' }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={t('consultant.placeholder')}
+            disabled={sending}
+            style={{ flex: 1, padding: '10px 16px', border: '1px solid var(--pp-border)', borderRadius: '99px', fontSize: '14px', outline: 'none', background: 'white' }}
+          />
+          <button type="submit" disabled={sending || !input.trim()} style={{
+            padding: '10px 20px', background: 'var(--pp-primary)', color: 'white',
+            border: 'none', borderRadius: '99px', fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+            opacity: (sending || !input.trim()) ? 0.5 : 1,
+          }}>{t('consultant.send')}</button>
+        </form>
+      </div>
     </div>
   )
 }

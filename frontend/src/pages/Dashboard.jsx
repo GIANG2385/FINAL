@@ -72,7 +72,7 @@ export default function Dashboard() {
         return ts >= cutoff
       })
       .reduce((sum, o) => sum + (o.total_amount || 0), 0)
-  }, [allOrders, revenueRange])
+  }, [rawOrders, revenueRange])
 
   if (rawOrders === null || tables === null) {
     return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>

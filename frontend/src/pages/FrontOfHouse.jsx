@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
+import {
+  collection, doc, onSnapshot, query,
+  runTransaction, serverTimestamp, updateDoc, where, writeBatch,
+} from 'firebase/firestore'
 import { db } from '../services/firebase'
-import { api } from '../services/api'
 import { MENU_ITEMS } from '../data/menu'
 
 function formatVnd(amount, lang) {
@@ -32,12 +34,6 @@ const TABLE_COLORS = {
 const TABLE_MINUTES = { T01: 42, T02: 18, T03: 65, T04: 10, T05: 30, T06: 55, T07: 8, T08: 22 }
 const AVG_OCCUPIED_MIN = 28
 const PAYMENT_METHODS = ['cash', 'card', 'momo']
-
-const STATUS_COLORS = {
-  confirmed: 'bg-purple-100 text-purple-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-gray-100 text-gray-500',
-}
 
 const tabBtn = (active) => ({
   padding: '10px 20px',
@@ -72,11 +68,11 @@ export default function FrontOfHouse() {
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
-      setTables(snap.docs.map((d) => d.data()))
+      setTables(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', dayAgo))
-    const unsubOrders = onSnapshot(recentOrders, (snap) => {
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
+    const todayOrders = query(collection(db, 'orders'), where('created_at', '>=', dayStart))
+    const unsubOrders = onSnapshot(todayOrders, (snap) => {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     const unsubQueue = onSnapshot(collection(db, 'kitchen_queue'), (snap) => {
@@ -90,11 +86,16 @@ export default function FrontOfHouse() {
     return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes() }
   }, [])
 
+  // Find the active (unpaid or in-progress) order for the selected table
   const activeOrder = useMemo(() => {
     if (!orders || !selectedTable) return null
     return orders
       .filter((o) => o.table_id === selectedTable && o.status !== 'cancelled')
-      .sort((a, b) => (b.created_at?.toMillis?.() ?? 0) - (a.created_at?.toMillis?.() ?? 0))
+      .sort((a, b) => {
+        const ta = toDate(a.created_at)?.getTime() ?? 0
+        const tb2 = toDate(b.created_at)?.getTime() ?? 0
+        return tb2 - ta
+      })
       .find((o) => o.status !== 'served' || !o.payment_method) || null
   }, [orders, selectedTable])
 
@@ -105,49 +106,111 @@ export default function FrontOfHouse() {
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0)
   const cartTotal = cartItems.reduce((sum, [sku, qty]) => {
     const item = MENU_ITEMS.find((m) => m.sku === sku)
-    return sum + item.unit_price * qty
+    return sum + (item?.unit_price ?? 0) * qty
   }, 0)
 
+  // ── Create order: write directly to Firestore (mirrors ordersController.createOrder) ──
   async function handleCreateOrder() {
+    if (cartItems.length === 0) return
     setBusy(true); setError(null)
     try {
-      await api.post('/api/orders', {
-        table_id: selectedTable, channel: 'dine_in',
-        items: cartItems.map(([sku, qty]) => ({ sku, qty })),
+      const resolvedItems = cartItems.map(([sku, qty]) => {
+        const item = MENU_ITEMS.find((m) => m.sku === sku)
+        return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
       })
+      const total_amount = resolvedItems.reduce((s, i) => s + i.unit_price * i.qty, 0)
+      const orderRef = doc(collection(db, 'orders'))
+      const tableRef = doc(db, 'tables', selectedTable)
+
+      await runTransaction(db, async (tx) => {
+        tx.set(orderRef, {
+          table_id: selectedTable,
+          channel: 'dine_in',
+          items: resolvedItems,
+          status: 'open',
+          total_amount,
+          created_at: serverTimestamp(),
+          served_at: null,
+          payment_method: null,
+        })
+        tx.update(tableRef, { status: 'dining', seated_at: serverTimestamp() })
+      })
+
       setCart({})
-      const now = Date.now()
-      const recent = (orders || [])
-        .filter((o) => o.created_at)
-        .map((o) => (o.created_at.toMillis ? o.created_at.toMillis() : new Date(o.created_at).getTime()))
-        .filter((ts) => now - ts < 5 * 60 * 1000)
-      if (recent.length >= 3) setSpikeAlert(true)
-    } catch { setError(t('common.error')) }
-    finally { setBusy(false) }
+
+      // Spike detection: ≥3 orders in last 5 min
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000
+      const recentCount = (orders || []).filter((o) => {
+        const ts = toDate(o.created_at)?.getTime() ?? 0
+        return ts >= fiveMinAgo
+      }).length
+      if (recentCount >= 2) setSpikeAlert(true)  // +1 for the order just created
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
   }
 
+  // ── Send to kitchen: update order status + create kitchen_queue entries ──
   async function handleSendToKitchen(orderId) {
     setBusy(true); setError(null)
-    try { await api.patch(`/api/orders/${orderId}/status`, { status: 'in_kitchen' }) }
-    catch { setError(t('common.error')) }
-    finally { setBusy(false) }
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, { status: 'in_kitchen' })
+
+      // Create a kitchen_queue item per line-item
+      const order = orders.find((o) => o.id === orderId)
+      if (order?.items?.length) {
+        const batch = writeBatch(db)
+        for (const item of order.items) {
+          const qRef = doc(collection(db, 'kitchen_queue'))
+          batch.set(qRef, {
+            order_id: orderId,
+            table_id: selectedTable,
+            item_sku: item.sku,
+            item_name_vi: item.name_vi,
+            item_name_en: item.name_en,
+            qty: item.qty,
+            station: 'kitchen',
+            status: 'pending',
+            queued_at: serverTimestamp(),
+            started_at: null,
+            completed_at: null,
+            prep_time_target_min: 15,
+          })
+        }
+        await batch.commit()
+      }
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
   }
 
+  // ── Mark served ──
   async function handleMarkServed(orderId) {
     setBusy(true); setError(null)
-    try { await api.patch(`/api/orders/${orderId}/status`, { status: 'served' }) }
-    catch { setError(t('common.error')) }
-    finally { setBusy(false) }
+    try {
+      await updateDoc(doc(db, 'orders', orderId), { status: 'served', served_at: serverTimestamp() })
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
   }
 
+  // ── Record payment: write payment_method + set table to cleanup ──
   async function handleRecordPayment(orderId, method, total) {
     setBusy(true); setError(null)
     try {
-      await updateDoc(doc(db, 'orders', orderId), { payment_method: method })
-      await updateDoc(doc(db, 'tables', selectedTable), { status: 'cleanup' })
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'orders', orderId), { payment_method: method })
+      batch.update(doc(db, 'tables', selectedTable), { status: 'cleanup' })
+      await batch.commit()
       setPaymentConfirmation({ tableId: selectedTable, total, method })
-    } catch { setError(t('common.error')) }
-    finally { setBusy(false) }
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
   }
 
   const tabs = [
@@ -156,11 +219,11 @@ export default function FrontOfHouse() {
     { id: 'reservations', label: i18n.language === 'vi' ? 'Đặt bàn' : 'Reservations' },
   ]
 
-  // Kitchen kanban data
+  // Kitchen kanban
   const queue = kitchenQueue || []
   const pendingQ   = queue.filter((q) => q.status === 'pending')
   const inKitchenQ = queue.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
-  const completedQ = queue.filter((q) => q.status === 'ready')
+  const completedQ = queue.filter((q) => q.status === 'ready' || q.status === 'completed')
 
   // Reservations
   const upcoming = (reservations || []).filter((r) => {
@@ -183,7 +246,9 @@ export default function FrontOfHouse() {
           color: 'var(--pp-warning-text)',
         }}>
           <span>{t('foh.spikeAlert')}</span>
-          <button onClick={() => setSpikeAlert(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline', color: 'inherit' }}>{t('common.cancel')}</button>
+          <button onClick={() => setSpikeAlert(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline', color: 'inherit' }}>
+            {t('common.cancel')}
+          </button>
         </div>
       )}
 
@@ -198,133 +263,186 @@ export default function FrontOfHouse() {
 
       {/* ── Tab A: Tables ── */}
       {activeTab === 'tables' && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(100px,1fr))', gap: '10px', marginBottom: '24px' }}>
-            {tables.map((tb) => {
-              const tc = TABLE_COLORS[tb.status] || TABLE_COLORS.open
-              const mins = TABLE_MINUTES[tb.table_id]
-              const isSelected = selectedTable === tb.table_id
-              return (
-                <button
-                  key={tb.table_id}
-                  onClick={() => { setSelectedTable(tb.table_id); setPaymentConfirmation(null) }}
-                  style={{
-                    borderRadius: '10px', padding: '12px 8px', textAlign: 'center', fontSize: '13px',
-                    fontWeight: 500, cursor: 'pointer', border: isSelected ? '2px solid var(--pp-primary)' : '2px solid transparent',
-                    background: tc.bg, color: tc.color, transition: 'border 0.15s',
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{tb.table_id}</div>
-                  <div style={{ fontSize: '11px', marginTop: '2px' }}>{t(`dashboard.status.${tb.status}`)}</div>
-                  {tb.status === 'dining' && mins && (
-                    <div style={{
-                      marginTop: '4px', fontSize: '11px', fontWeight: 600,
-                      color: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-text)' : 'var(--pp-success-text)',
-                      background: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
-                      borderRadius: '4px', padding: '1px 4px',
-                    }}>{mins}m</div>
-                  )}
-                </button>
-              )
-            })}
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          {/* Table grid */}
+          <div style={{ flex: '0 0 auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(90px,1fr))', gap: '10px', marginBottom: '12px', width: '320px' }}>
+              {tables.map((tb) => {
+                const tc = TABLE_COLORS[tb.status] || TABLE_COLORS.open
+                const mins = TABLE_MINUTES[tb.table_id]
+                const isSelected = selectedTable === tb.table_id
+                const tableOrder = orders.find((o) =>
+                  o.table_id === tb.table_id && o.status !== 'cancelled' && o.status !== 'served'
+                )
+                return (
+                  <button
+                    key={tb.table_id}
+                    onClick={() => { setSelectedTable(tb.table_id); setPaymentConfirmation(null); setError(null) }}
+                    style={{
+                      borderRadius: '10px', padding: '12px 8px', textAlign: 'center', fontSize: '13px',
+                      fontWeight: 500, cursor: 'pointer',
+                      border: isSelected ? '2px solid var(--pp-primary)' : '2px solid transparent',
+                      background: tc.bg, color: tc.color, transition: 'border 0.15s',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{tb.table_id}</div>
+                    <div style={{ fontSize: '11px', marginTop: '2px' }}>{t(`dashboard.status.${tb.status}`)}</div>
+                    {tableOrder && (
+                      <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--pp-primary)', fontWeight: 600 }}>
+                        {t(`foh.orderStatus.${tableOrder.status}`)}
+                      </div>
+                    )}
+                    {tb.status === 'dining' && mins && (
+                      <div style={{
+                        marginTop: '4px', fontSize: '11px', fontWeight: 600,
+                        color: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-text)' : 'var(--pp-success-text)',
+                        background: mins > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
+                        borderRadius: '4px', padding: '1px 4px',
+                      }}>{mins}m</div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              {Object.entries(TABLE_COLORS).map(([status, style]) => (
+                <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--pp-text-muted)' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: style.bg, border: '1px solid var(--pp-border)' }} />
+                  {t(`dashboard.status.${status}`)}
+                </div>
+              ))}
+            </div>
           </div>
 
+          {/* Order panel */}
           {selectedTable && (
-            <div style={{ maxWidth: '440px', background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ flex: 1, minWidth: '300px', maxWidth: '420px', background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                 <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                  {activeOrder ? t('foh.billFor', { table: selectedTable }) : selectedTable}
+                  {activeOrder ? `${t('foh.billFor', { table: selectedTable })}` : `${i18n.language === 'vi' ? 'Bàn' : 'Table'} ${selectedTable}`}
                 </h2>
                 {activeOrder && (
                   <span style={{
                     borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500,
-                    background: activeOrder.status === 'served' ? 'var(--pp-success-bg)' : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-bg)' : 'var(--pp-neutral-bg)',
-                    color: activeOrder.status === 'served' ? 'var(--pp-success-text)' : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-text)' : 'var(--pp-neutral-text)',
+                    background: activeOrder.status === 'served' ? 'var(--pp-success-bg)'
+                      : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-bg)'
+                      : 'var(--pp-neutral-bg)',
+                    color: activeOrder.status === 'served' ? 'var(--pp-success-text)'
+                      : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-text)'
+                      : 'var(--pp-neutral-text)',
                   }}>
                     {t(`foh.orderStatus.${activeOrder.status}`)}
                   </span>
                 )}
               </div>
-              {error && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '8px' }}>{error}</p>}
 
+              {error && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{error}</p>}
+
+              {/* Payment confirmed screen */}
               {paymentConfirmation && paymentConfirmation.tableId === selectedTable ? (
                 <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '8px' }}>✅</div>
                   <p style={{ fontSize: '18px', fontWeight: 700, color: 'var(--pp-success-text)', marginBottom: '8px' }}>{t('foh.paymentReceived')}</p>
-                  <p style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>{formatVnd(paymentConfirmation.total, i18n.language)}</p>
-                  <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', marginBottom: '16px', textTransform: 'capitalize' }}>{paymentConfirmation.method}</p>
-                  <button onClick={() => setPaymentConfirmation(null)} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', width: '100%' }}>
+                  <p style={{ fontSize: '28px', fontWeight: 700, marginBottom: '4px' }}>{formatVnd(paymentConfirmation.total, i18n.language)}</p>
+                  <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', marginBottom: '20px', textTransform: 'capitalize' }}>{paymentConfirmation.method}</p>
+                  <button
+                    onClick={() => { setPaymentConfirmation(null); setSelectedTable(null) }}
+                    style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px 24px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', width: '100%' }}
+                  >
                     {t('foh.startNewOrder')}
                   </button>
                 </div>
-              ) : (
-                <>
-                  {!activeOrder && (
-                    <div>
-                      {MENU_ITEMS.map((item) => (
-                        <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
-                          <div>
-                            <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
-                            <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px' }}>−</button>
-                            <span style={{ width: '20px', textAlign: 'center', fontSize: '14px' }}>{cart[item.sku] || 0}</span>
-                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px' }}>+</button>
-                          </div>
-                        </div>
-                      ))}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
-                        <span style={{ fontWeight: 600 }}>{formatVnd(cartTotal, i18n.language)}</span>
-                        <button disabled={busy || cartItems.length === 0} onClick={handleCreateOrder} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: (busy || cartItems.length === 0) ? 0.5 : 1 }}>
-                          {t('foh.createOrder')}
-                        </button>
+              ) : !activeOrder ? (
+                /* New order — item picker */
+                <div>
+                  <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
+                    {i18n.language === 'vi' ? 'Chọn món để tạo đơn hàng mới' : 'Select items to create a new order'}
+                  </p>
+                  {MENU_ITEMS.map((item) => (
+                    <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
+                      <div>
+                        <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                        <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
                       </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
+                        <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
+                        <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
+                    <span style={{ fontWeight: 700, fontSize: '16px' }}>{formatVnd(cartTotal, i18n.language)}</span>
+                    <button
+                      disabled={busy || cartItems.length === 0}
+                      onClick={handleCreateOrder}
+                      style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px 22px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: (busy || cartItems.length === 0) ? 0.5 : 1 }}
+                    >
+                      {busy ? '…' : t('foh.createOrder')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Active order — bill view */
+                <div>
+                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
+                    {(activeOrder.items || []).map((it, idx) => (
+                      <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', padding: '6px 0', borderBottom: '1px solid var(--pp-border)' }}>
+                        <span>{it.qty}× {i18n.language === 'vi' ? it.name_vi : it.name_en}</span>
+                        <span style={{ fontWeight: 500 }}>{formatVnd(it.unit_price * it.qty, i18n.language)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid var(--pp-border)', paddingTop: '10px', fontWeight: 700, fontSize: '16px', marginBottom: '16px' }}>
+                    <span>{t('foh.total')}</span>
+                    <span>{formatVnd(activeOrder.total_amount, i18n.language)}</span>
+                  </div>
+
+                  {activeOrder.status === 'open' && (
+                    <button
+                      disabled={busy}
+                      onClick={() => handleSendToKitchen(activeOrder.id)}
+                      style={{ width: '100%', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+                    >
+                      {busy ? '…' : t('foh.sendToKitchen')}
+                    </button>
+                  )}
+
+                  {activeOrder.status === 'in_kitchen' && (
+                    <div>
+                      <p style={{ fontSize: '13px', color: 'var(--pp-warning-text)', background: 'var(--pp-warning-bg)', borderRadius: '6px', padding: '8px 12px', marginBottom: '10px' }}>
+                        🍳 {t('foh.inKitchen')}
+                      </p>
+                      <button
+                        disabled={busy}
+                        onClick={() => handleMarkServed(activeOrder.id)}
+                        style={{ width: '100%', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+                      >
+                        {busy ? '…' : t('foh.markServed')}
+                      </button>
                     </div>
                   )}
 
-                  {activeOrder && (
+                  {activeOrder.status === 'served' && !activeOrder.payment_method && (
                     <div>
-                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
-                        {activeOrder.items.map((it, idx) => (
-                          <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', paddingBottom: '6px' }}>
-                            <span>{it.qty}× {i18n.language === 'vi' ? it.name_vi : it.name_en}</span>
-                            <span>{formatVnd(it.unit_price * it.qty, i18n.language)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid var(--pp-border)', paddingTop: '10px', fontWeight: 700, fontSize: '16px', marginBottom: '14px' }}>
-                        <span>{t('foh.total')}</span>
-                        <span>{formatVnd(activeOrder.total_amount, i18n.language)}</span>
-                      </div>
-                      {activeOrder.status === 'open' && (
-                        <button disabled={busy} onClick={() => handleSendToKitchen(activeOrder.id)} style={{ width: '100%', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: busy ? 0.5 : 1 }}>
-                          {t('foh.sendToKitchen')}
-                        </button>
-                      )}
-                      {activeOrder.status === 'in_kitchen' && (
-                        <div>
-                          <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', marginBottom: '8px' }}>{t('foh.inKitchen')}</p>
-                          <button disabled={busy} onClick={() => handleMarkServed(activeOrder.id)} style={{ width: '100%', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: busy ? 0.5 : 1 }}>
-                            {t('foh.markServed')}
+                      <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>{t('foh.recordPayment')}</p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {PAYMENT_METHODS.map((method) => (
+                          <button
+                            key={method}
+                            disabled={busy}
+                            onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
+                            style={{ flex: 1, border: '2px solid var(--pp-border)', background: 'white', borderRadius: '8px', padding: '10px 6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', opacity: busy ? 0.5 : 1 }}
+                          >
+                            {method === 'cash' ? '💵' : method === 'card' ? '💳' : '📱'} {method}
                           </button>
-                        </div>
-                      )}
-                      {activeOrder.status === 'served' && !activeOrder.payment_method && (
-                        <div>
-                          <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>{t('foh.recordPayment')}</p>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            {PAYMENT_METHODS.map((method) => (
-                              <button key={method} disabled={busy} onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
-                                style={{ flex: 1, border: '1px solid var(--pp-border)', background: 'white', borderRadius: '8px', padding: '8px', fontSize: '13px', cursor: 'pointer', textTransform: 'capitalize', opacity: busy ? 0.5 : 1 }}>
-                                {method}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        ))}
+                      </div>
                     </div>
                   )}
-                </>
+                </div>
               )}
             </div>
           )}
@@ -354,8 +472,16 @@ export default function FrontOfHouse() {
                       const delayColor = elapsed > 20 ? 'var(--pp-danger-text)' : elapsed > 10 ? '#D97706' : 'var(--pp-success-text)'
                       return (
                         <div key={q.id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
-                          <p style={{ fontWeight: 600, fontSize: '13px', margin: '0 0 2px' }}>{q.item_sku}</p>
-                          <p style={{ fontSize: '11px', color: 'var(--pp-text-muted)', margin: '0 0 6px' }}>{q.station}</p>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                            <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
+                              {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_sku) : (q.item_name_en || q.item_sku)}
+                            </p>
+                            {q.table_id && (
+                              <span style={{ fontSize: '11px', background: 'var(--pp-neutral-bg)', color: 'var(--pp-neutral-text)', borderRadius: '4px', padding: '1px 5px', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                                {q.table_id}
+                              </span>
+                            )}
+                          </div>
                           <p style={{ fontSize: '12px', fontWeight: 500, color: delayColor, margin: 0 }}>⏱ {elapsed} {i18n.language === 'vi' ? 'phút' : 'min'}</p>
                         </div>
                       )
@@ -385,14 +511,29 @@ export default function FrontOfHouse() {
           {formOpen && (
             <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {formError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '12px', margin: 0 }}>{formError}</p>}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input style={{ flex: 1, border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} placeholder={t('guest.guestNameLabel')} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-                <input type="number" min="1" max="20" style={{ width: '70px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }} value={form.partySize} onChange={(e) => setForm((f) => ({ ...f, partySize: Number(e.target.value) }))} />
-                <input style={{ width: '80px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }} placeholder="HH:MM" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <input
+                  style={{ flex: 1, minWidth: '140px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+                  placeholder={t('guest.guestNameLabel')}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                />
+                <input
+                  type="number" min="1" max="20"
+                  style={{ width: '70px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }}
+                  value={form.partySize}
+                  onChange={(e) => setForm((f) => ({ ...f, partySize: Number(e.target.value) }))}
+                />
+                <input
+                  style={{ width: '90px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }}
+                  placeholder="HH:MM"
+                  value={form.time}
+                  onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
+                />
               </div>
               <button
                 onClick={() => {
-                  if (!form.name.trim()) { setFormError('Vui lòng nhập tên khách'); return }
+                  if (!form.name.trim()) { setFormError(i18n.language === 'vi' ? 'Vui lòng nhập tên khách' : 'Please enter guest name'); return }
                   setLocalReservations((prev) => [...prev, { id: Date.now(), guest_name: form.name, party_size: form.partySize, time: form.time, status: 'confirmed' }])
                   setForm({ name: '', partySize: 2, time: '18:00' }); setFormOpen(false); setFormError(null)
                 }}

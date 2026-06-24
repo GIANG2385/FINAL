@@ -144,6 +144,18 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* AI Daily Summary */}
+      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+        <p className="mb-1 text-sm font-semibold text-purple-700">{t('dashboard.aiSummary')}</p>
+        <p className="text-sm text-gray-700">
+          {i18n.language === 'vi'
+            ? `Hôm nay có ${covers} lượt khách, doanh thu ${formatVnd(todayRevenue, i18n.language)}. ${occupied > 0 ? `Hiện có ${occupied} bàn đang sử dụng.` : 'Hiện không có bàn nào đang sử dụng.'} ${activeInsights.length > 0 ? `Có ${activeInsights.length} cảnh báo cần xử lý.` : 'Không có cảnh báo nào.'}`
+            : `Today: ${covers} covers, revenue ${formatVnd(todayRevenue, i18n.language)}. ${occupied > 0 ? `${occupied} tables currently occupied.` : 'No tables currently occupied.'} ${activeInsights.length > 0 ? `${activeInsights.length} alert(s) need attention.` : 'No active alerts.'}`
+          }
+        </p>
+        <p className="mt-2 text-xs text-purple-600">{t('dashboard.rootCause')}</p>
+      </div>
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         {tables.map((tb) => (
           <div

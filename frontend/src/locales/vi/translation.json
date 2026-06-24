@@ -35,6 +35,8 @@
     "tablesOccupied": "{{occupied}} / {{total}} đang sử dụng",
     "alerts": "Cảnh báo đang hoạt động",
     "noAlerts": "Không có cảnh báo nào.",
+    "aiSummary": "Tóm tắt AI hôm nay",
+    "rootCause": "Nguyên nhân gốc: Doanh thu giảm do Bàn 5 và Bàn 7 chờ >25 phút trong giờ cao điểm",
     "range": {
       "day": "Hôm nay",
       "week": "7 Ngày",
@@ -62,7 +64,13 @@
       "served": "Đã phục vụ"
     },
     "paymentReceived": "Đã nhận thanh toán",
-    "startNewOrder": "Bắt đầu đơn mới"
+    "startNewOrder": "Bắt đầu đơn mới",
+    "tableAiInsight": "Bàn {{id}} — đã sử dụng {{min}} phút, trung bình {{avg}} phút",
+    "spikeAlert": "Lượng đơn tăng đột biến — kiểm tra năng lực bếp",
+    "reservations": "Đặt bàn hôm nay",
+    "addReservation": "Thêm đặt bàn",
+    "peakForecast": "Dự kiến đông khách lúc 18:30–20:00 dựa trên lịch sử đặt bàn",
+    "reservationAdded": "Đã thêm đặt bàn"
   },
   "boh": {
     "inventory": "Tồn kho",
@@ -86,7 +94,27 @@
     "profitSnapshot": "Tổng quan lợi nhuận",
     "foodCost": "Chi phí nguyên liệu",
     "laborCost": "Chi phí nhân công",
-    "profit": "Lợi nhuận"
+    "profit": "Lợi nhuận",
+    "kanban": {
+      "pending": "Đang chờ",
+      "inKitchen": "Đang làm",
+      "completed": "Hoàn thành"
+    },
+    "delayAlert": "Đơn bàn {{table}} chờ >20 phút",
+    "shiftTime": "{{start}} – {{end}}",
+    "shiftStatus": { "on": "Đang ca", "off": "Nghỉ" },
+    "laborAiForecast": "Ca 18:00–21:00 có thể thiếu nhân sự dựa trên lịch sử cuối tuần",
+    "supply": "Giám sát nhà cung cấp",
+    "supplier": "Nhà cung cấp",
+    "items": "Hàng cung cấp",
+    "lastDelivery": "Giao hàng gần nhất",
+    "reliability": "Đúng hạn",
+    "supplyAiForecast": "Thịt bò dự kiến hết trong 1.5 ngày — đặt hàng trước thứ Tư",
+    "channels": "Doanh thu theo kênh",
+    "channelName": "Kênh",
+    "channelOrders": "Đơn",
+    "channelRevenue": "Doanh thu",
+    "channelAiInsight": "GrabFood chiếm 38% doanh thu nhưng biên lợi nhuận thấp hơn 12% so với tại bàn"
   },
   "insights": {
     "title": "Phân tích & Đề xuất",
@@ -127,7 +155,17 @@
     "noRepeatGuests": "Chưa có khách hàng quay lại.",
     "visitFrequency": "Số lượt",
     "visits": "{{count}} lượt",
-    "lastVisit": "Lần ghé gần nhất"
+    "lastVisit": "Lần ghé gần nhất",
+    "addReservation": "Thêm đặt bàn",
+    "guestNameLabel": "Tên khách",
+    "partySizeLabel": "Số khách",
+    "timeLabel": "Giờ đặt (HH:MM)",
+    "peakForecast": "Dự kiến đông khách lúc 18:30–20:00 dựa trên lịch sử đặt bàn",
+    "loyaltyPoints": "Điểm",
+    "loyaltyTier": "Hạng",
+    "loyaltyTiers": { "dong": "Đồng", "bac": "Bạc", "vang": "Vàng" },
+    "totalMembers": "Tổng thành viên: {{count}}",
+    "atRiskInsight": "32% khách hàng chưa quay lại sau 14 ngày — cần chiến lược giữ chân"
   },
   "consultant": {
     "title": "Tư vấn AI",

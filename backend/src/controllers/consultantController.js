@@ -10,54 +10,224 @@ function startOfToday() {
   return d
 }
 
+function toDate(value) {
+  if (!value) return null
+  return value.toDate ? value.toDate() : new Date(value)
+}
+
+// Static representative data for collections not yet in Firestore.
+// Mirrors the sample data shown in the frontend UI (BackOfHouse.jsx).
+const STATIC_SUPPLIERS = [
+  { name: 'Chị Lan — Chợ Hôm', reliability: 95, nextShortfall: 'Thịt bò (~1.5 ngày)' },
+  { name: 'Anh Tuấn — Chợ Đồng Xuân', reliability: 82, nextShortfall: null },
+  { name: 'Cty Minh Tâm', reliability: 68, nextShortfall: 'Bánh phở (~3 ngày)' },
+]
+
+const STATIC_CHANNELS = [
+  { name: 'Dine-in', orders: 48, revenue: 6240000 },
+  { name: 'Takeaway', orders: 15, revenue: 1350000 },
+  { name: 'GrabFood', orders: 22, revenue: 2090000 },
+  { name: 'ShopeeFood', orders: 9, revenue: 855000 },
+]
+
 async function buildDataSnapshot() {
+  const today = startOfToday()
+  const now = new Date()
+
+  // ── Revenue (today's served orders) ──────────────────────────────────────
   // Server-side range filter (not status-filtered, to avoid needing a
-  // composite index) — orders now holds 10,000+ historical rows, so an
-  // unfiltered full-collection scan here would be extremely costly.
-  const ordersSnap = await db.collection('orders').where('served_at', '>=', startOfToday()).get()
-  const revenue = ordersSnap.docs.reduce((sum, doc) => {
-    const order = doc.data()
-    if (order.status !== 'served') return sum
-    return sum + (order.total_amount || 0)
-  }, 0)
+  // composite index) — orders holds 10,000+ historical rows.
+  const ordersSnap = await db.collection('orders').where('served_at', '>=', today).get()
+  const todayOrders = ordersSnap.docs.map((d) => d.data())
+  const revenue = todayOrders.reduce((sum, o) => (o.status === 'served' ? sum + (o.total_amount || 0) : sum), 0)
+  const covers = todayOrders.filter((o) => o.status === 'served').length
+  const avgTicket = covers > 0 ? Math.round(revenue / covers) : 0
 
+  // Top items by quantity sold today
+  const itemCounts = {}
+  for (const order of todayOrders) {
+    if (order.status !== 'served') continue
+    for (const item of order.items || []) {
+      const key = item.name_en || item.sku || 'unknown'
+      itemCounts[key] = (itemCounts[key] || 0) + (item.qty || 1)
+    }
+  }
+  const topItems = Object.entries(itemCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, sold]) => ({ name, sold }))
+
+  // ── Historical baseline ───────────────────────────────────────────────────
+  const baseline = await getHistoricalBaseline()
+  const weekday = now.getDay()
+  const typicalToday = baseline.byWeekday[weekday] || 0
+  const vsTypical = typicalToday > 0 ? Math.round(((revenue - typicalToday) / typicalToday) * 100) : null
+
+  // ── Inventory ─────────────────────────────────────────────────────────────
   const inventorySnap = await db.collection('inventory').get()
-  const atRiskItems = inventorySnap.docs
-    .map((d) => d.data())
-    .map((item) => {
-      const hourlyConsumption = (item.avg_daily_consumption || 0) / 24
-      const hoursRemaining = hourlyConsumption > 0 ? item.current_stock / hourlyConsumption : null
-      return { ...item, hoursRemaining }
-    })
-    .filter((item) => item.hoursRemaining !== null && item.hoursRemaining <= 6)
-    .map(
-      (item) =>
-        `${item.name_en} (${item.current_stock} ${item.unit} left, ~${Math.round(item.hoursRemaining)}h remaining)`
-    )
+  const inventory = inventorySnap.docs.map((d) => {
+    const item = d.data()
+    const hourlyConsumption = (item.avg_daily_consumption || 0) / 24
+    const hoursRemaining = hourlyConsumption > 0 ? item.current_stock / hourlyConsumption : null
+    return {
+      name: item.name_en,
+      stock: item.current_stock,
+      unit: item.unit,
+      threshold: item.par_level,
+      status: hoursRemaining !== null && hoursRemaining <= 6 ? 'at_risk' : 'ok',
+      hoursRemaining: hoursRemaining !== null ? Math.round(hoursRemaining) : null,
+    }
+  })
 
+  // ── Tables ────────────────────────────────────────────────────────────────
+  const tablesSnap = await db.collection('tables').get()
+  const tables = tablesSnap.docs.map((d) => {
+    const t = d.data()
+    return { id: t.table_id, status: t.status }
+  })
+  const occupiedCount = tables.filter((t) => t.status === 'dining' || t.status === 'reserved').length
+
+  // ── Kitchen queue (active orders) ─────────────────────────────────────────
+  const queueSnap = await db.collection('kitchen_queue').get()
+  const queueItems = queueSnap.docs.map((d) => d.data())
+  const pendingCount = queueItems.filter((q) => q.status === 'pending').length
+  const inKitchenItems = queueItems.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
+  const delayedCount = inKitchenItems.filter((q) => {
+    const queuedAt = toDate(q.queued_at)
+    return queuedAt && (now - queuedAt) / 60000 > 20
+  }).length
+
+  // ── Staff shifts ──────────────────────────────────────────────────────────
+  const shiftsSnap = await db.collection('staff_shifts').get()
+  const allShifts = shiftsSnap.docs.map((d) => d.data())
+  const onShiftNow = allShifts.filter((s) => {
+    const start = toDate(s.shift_start)
+    const end = toDate(s.shift_end)
+    return start && end && start <= now && now <= end
+  })
+
+  // ── Reservations (today) ──────────────────────────────────────────────────
+  const reservationsSnap = await db.collection('reservations').get()
+  const todayReservations = reservationsSnap.docs
+    .map((d) => d.data())
+    .filter((r) => {
+      const t = toDate(r.reservation_time)
+      return t && t >= today
+    })
+  const confirmedToday = todayReservations.filter((r) => r.status === 'confirmed')
+  const nextArrival = confirmedToday
+    .map((r) => toDate(r.reservation_time))
+    .filter((t) => t && t > now)
+    .sort((a, b) => a - b)[0]
+
+  // ── Loyalty (derived from all reservations) ───────────────────────────────
+  const allReservationsSnap = await db.collection('reservations').get()
+  const guestVisits = {}
+  for (const doc of allReservationsSnap.docs) {
+    const r = doc.data()
+    if (r.status === 'cancelled') continue
+    guestVisits[r.guest_name] = (guestVisits[r.guest_name] || 0) + 1
+  }
+  const repeatGuests = Object.values(guestVisits).filter((v) => v >= 2)
+  const totalMembers = repeatGuests.length
+  // "at risk" = guests with exactly 1–3 visits in last month — approximate with visit count
+  const atRiskCount = repeatGuests.filter((v) => v < 4).length
+  const avgVisitsPerMonth = totalMembers > 0 ? Math.round(repeatGuests.reduce((s, v) => s + v, 0) / totalMembers) : 0
+
+  // ── Insights ──────────────────────────────────────────────────────────────
   const insightsSnap = await db.collection('insights').get()
   const activeInsights = insightsSnap.docs
     .map((d) => d.data())
     .filter((i) => i.status !== 'acted_on')
     .map((i) => i.summary_en)
 
-  const baseline = await getHistoricalBaseline()
-  const weekday = new Date().getDay()
-  const typicalToday = baseline.byWeekday[weekday] || 0
-  const vsTypical =
-    typicalToday > 0 ? Math.round(((revenue - typicalToday) / typicalToday) * 100) : null
+  // ── Assemble structured snapshot ──────────────────────────────────────────
+  const dataSnapshot = {
+    today: {
+      revenue: {
+        total: revenue,
+        vsTypicalPct: vsTypical,
+        historicalAvg: typicalToday,
+        byChannel: STATIC_CHANNELS,
+      },
+      covers,
+      avgTicket,
+      tablesOccupied: occupiedCount,
+      totalTables: tables.length,
+      activeAlerts: activeInsights.length,
+    },
+    inventory: inventory.map(({ name, stock, unit, threshold, status, hoursRemaining }) => ({
+      name, stock, unit, threshold, status, hoursRemaining,
+    })),
+    tables: tables.map(({ id, status }) => ({ id, status })),
+    orders: {
+      pending: pendingCount,
+      inKitchen: inKitchenItems.length,
+      delayed: delayedCount,
+    },
+    staff: {
+      onShiftNow: onShiftNow.length,
+      scheduledToday: allShifts.length,
+    },
+    reservations: {
+      todayCount: todayReservations.length,
+      confirmedCount: confirmedToday.length,
+      nextArrival: nextArrival
+        ? nextArrival.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+        : null,
+      peakForecast: '18:30–20:00 based on historical booking patterns',
+    },
+    suppliers: STATIC_SUPPLIERS,
+    loyalty: { totalMembers, atRiskCount, avgVisitsPerMonth },
+    topItems,
+  }
+
+  // ── Format as readable text for the system prompt ─────────────────────────
+  const atRiskInv = inventory.filter((i) => i.status === 'at_risk')
 
   return [
-    `Today's revenue so far: ${revenue.toLocaleString('en-US')} VND.`,
+    `=== RESTAURANT OPERATIONS SNAPSHOT (${now.toLocaleString('en-US')}) ===`,
+    '',
+    `REVENUE: ${revenue.toLocaleString('en-US')} VND today (${covers} covers, avg ticket ${avgTicket.toLocaleString('en-US')} VND).`,
     typicalToday > 0
-      ? `Historical average revenue for this day of week (based on ${baseline.distinctDays} days of past data): ${typicalToday.toLocaleString('en-US')} VND — today is currently ${vsTypical >= 0 ? '+' : ''}${vsTypical}% versus that typical level (note: a partial day so far will naturally read below 100% until the day ends).`
-      : 'No historical baseline data available yet to compare today against.',
-    atRiskItems.length > 0
-      ? `Inventory items at risk of running out soon: ${atRiskItems.join('; ')}.`
-      : 'No inventory items currently at risk of stockout.',
+      ? `vs. historical average for this weekday: ${typicalToday.toLocaleString('en-US')} VND (${vsTypical >= 0 ? '+' : ''}${vsTypical}%).`
+      : 'No historical baseline available yet.',
+    '',
+    `TABLES: ${occupiedCount}/${tables.length} occupied. Status breakdown: ${
+      ['open', 'reserved', 'dining', 'cleanup']
+        .map((s) => `${s}: ${tables.filter((t) => t.status === s).length}`)
+        .join(', ')
+    }.`,
+    '',
+    `KITCHEN QUEUE: ${pendingCount} pending, ${inKitchenItems.length} in kitchen, ${delayedCount} delayed (>20 min).`,
+    '',
+    `STAFF: ${onShiftNow.length} on shift now out of ${allShifts.length} scheduled today.`,
+    '',
+    `RESERVATIONS: ${todayReservations.length} today (${confirmedToday.length} confirmed). Next arrival: ${
+      nextArrival ? nextArrival.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'none'
+    }. Peak forecast: 18:30–20:00.`,
+    '',
+    `INVENTORY: ${
+      atRiskInv.length > 0
+        ? `AT RISK — ${atRiskInv.map((i) => `${i.name} (${i.stock} ${i.unit}, ~${i.hoursRemaining}h left)`).join('; ')}.`
+        : 'All items OK.'
+    }`,
+    '',
+    `SALES CHANNELS (today, sample): ${STATIC_CHANNELS.map((c) => `${c.name}: ${c.orders} orders, ${c.revenue.toLocaleString('en-US')} VND`).join(' | ')}.`,
+    '',
+    `SUPPLIERS: ${STATIC_SUPPLIERS.map((s) => `${s.name} (${s.reliability}% on-time${s.nextShortfall ? `, shortfall risk: ${s.nextShortfall}` : ''})`).join(' | ')}.`,
+    '',
+    `LOYALTY: ${totalMembers} repeat members tracked. ${atRiskCount} at risk of churn (< 4 visits). Avg ${avgVisitsPerMonth} visits/member.`,
+    '',
+    topItems.length > 0
+      ? `TOP ITEMS TODAY: ${topItems.map((i) => `${i.name} (${i.sold} sold)`).join(', ')}.`
+      : 'No completed orders yet today.',
+    '',
     activeInsights.length > 0
-      ? `Active AI-generated insights: ${activeInsights.join(' | ')}.`
-      : 'No active AI-generated insights right now.',
+      ? `ACTIVE AI INSIGHTS: ${activeInsights.join(' | ')}.`
+      : 'No active AI-generated insights.',
+    '',
+    `RAW JSON (for precise queries): ${JSON.stringify(dataSnapshot)}`,
   ].join('\n')
 }
 

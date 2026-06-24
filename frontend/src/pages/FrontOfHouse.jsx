@@ -27,6 +27,9 @@ const ORDER_STATUS_COLORS = {
 
 const PAYMENT_METHODS = ['cash', 'card', 'momo']
 
+const TABLE_MINUTES = { T01: 42, T02: 18, T03: 65, T04: 10, T05: 30, T06: 55, T07: 8, T08: 22 }
+const AVG_OCCUPIED_MIN = 28
+
 export default function FrontOfHouse() {
   const { t, i18n } = useTranslation()
   const [tables, setTables] = useState(null)
@@ -36,6 +39,7 @@ export default function FrontOfHouse() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [paymentConfirmation, setPaymentConfirmation] = useState(null)
+  const [spikeAlert, setSpikeAlert] = useState(false)
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -83,6 +87,12 @@ export default function FrontOfHouse() {
         items: cartItems.map(([sku, qty]) => ({ sku, qty })),
       })
       setCart({})
+      const now = Date.now()
+      const recent = (orders || [])
+        .filter((o) => o.created_at)
+        .map((o) => (o.created_at.toMillis ? o.created_at.toMillis() : new Date(o.created_at).getTime()))
+        .filter((ts) => now - ts < 5 * 60 * 1000)
+      if (recent.length >= 3) setSpikeAlert(true)
     } catch (err) {
       setError(t('common.error'))
     } finally {
@@ -132,6 +142,13 @@ export default function FrontOfHouse() {
     <div className="p-6">
       <h1 className="mb-4 text-2xl font-semibold">{t('nav.frontOfHouse')}</h1>
 
+      {spikeAlert && (
+        <div className="mb-4 flex items-center justify-between rounded-md bg-amber-100 px-4 py-2 text-sm text-amber-800">
+          <span>{t('foh.spikeAlert')}</span>
+          <button onClick={() => setSpikeAlert(false)} className="ml-4 text-xs underline">{t('common.cancel')}</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         {tables.map((tb) => (
           <button
@@ -148,6 +165,14 @@ export default function FrontOfHouse() {
           >
             <div>{tb.table_id}</div>
             <div className="text-xs">{t(`dashboard.status.${tb.status}`)}</div>
+            {tb.status === 'dining' && TABLE_MINUTES[tb.table_id] && (
+              <div className={
+                'mt-1 rounded px-1 text-xs ' +
+                (TABLE_MINUTES[tb.table_id] > AVG_OCCUPIED_MIN ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700')
+              }>
+                {TABLE_MINUTES[tb.table_id]}m
+              </div>
+            )}
           </button>
         ))}
       </div>

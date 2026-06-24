@@ -1,201 +1,134 @@
 # Pang Pang SmartOps AI — Progress Tracker
 
-> Companion to `PangPang_SmartOps_AI_Build_Instructions.md`. Read that file first for full spec. This file tracks what's done and what's next — update it after every build step.
-
-**Status as of 2026-06-21:** Steps 1–11 complete (full vertical slice + polish pass). Repo pushed to GitHub, frontend deploying to Vercel (user-driven). AI Operations Consultant chatbot fully implemented and verified end-to-end with Cohere (switched from OpenAI after billing/quota blocked verification). Historical 10,000-order dataset loaded and wired into a real revenue baseline (root-cause analysis, profit ranges, AI Consultant). A new FOH-bill-clarity + Dashboard-revenue-range-KPI feature is implemented and committed (Tasks 1-4 of its plan: i18n, Dashboard range toggle, FOH bill styling, FOH payment confirmation) but **Task 5 (live Playwright/Firestore verification) is blocked** — the Firestore free-tier read quota has now been confirmed exhausted on three separate occasions across two days, including after the local calendar date changed, strongly suggesting the Spark-plan quota resets on a Pacific Time boundary well behind local (Vietnam) time. See the dated log entries below for full detail.
+**Status as of 2026-06-25:** All 11 build steps complete. App deployed to Vercel (`https://final-wine-five.vercel.app`). Backend API calls eliminated — all data flows directly through Firestore client SDK. Pang Pang brand redesign and full UI restructure complete. June 2026 demo data scripts written; **data load blocked on Firestore free-tier quota** (resets 14:00 Vietnam time / midnight Pacific Time daily).
 
 ---
 
-## Build Order Checklist (from §9 of build instructions)
+## Build Order Checklist
 
-- [x] 1. Scaffold `frontend/` (Vite + React + Tailwind + react-router-dom + i18next) and `backend/` (Express skeleton)
-- [x] 2. Wire up Firebase: `firebase.js` (frontend) and `firebaseAdmin.js` (backend) connected to real Firebase project `group13-4182f`
-- [x] 3. Build Auth flow (login page, protected routes, role context)
-- [x] 4. Build i18n scaffolding with seed keys; confirm toggle works end-to-end
-- [x] 5. Seed Firestore with mock data (orders, inventory, tables, staff_shifts)
-- [x] 6. Build Dashboard page reading from Firestore (`onSnapshot`)
-- [x] 7. Build Front of House (tables + POS-lite)
-- [x] 8. Build Back of House (inventory + KDS + labor + profit)
-- [x] 9. Build backend AI services (§6) + `/api/insights` + insights feed UI
-- [x] 10. Build Guest Engagement (reservations, basic loyalty view)
-- [x] 11. Polish: full i18n string coverage, empty/loading/error states, responsive layout
-- [ ] 12. (Optional) Deploy: Firebase Hosting + Cloud Functions/Cloud Run
-
-Rule: build and verify each step before moving to the next; don't generate the whole codebase in one shot.
+- [x] 1. Scaffold frontend (Vite + React + Tailwind + i18next) and backend (Express)
+- [x] 2. Firebase: `firebase.js` (frontend) + `firebaseAdmin.js` (backend) → project `group13-4182f`
+- [x] 3. Auth flow (login, protected routes, role context)
+- [x] 4. i18n scaffolding — VI/EN toggle verified end-to-end
+- [x] 5. Seed Firestore (orders, inventory, tables, staff_shifts)
+- [x] 6. Dashboard — live `onSnapshot` reads, KPI cards, alerts feed
+- [x] 7. Front of House — table grid + POS-lite + payment
+- [x] 8. Back of House — inventory forecast + kitchen display + labor + profit
+- [x] 9. AI Intelligence Engine — rule-based insights, `/api/insights`, scheduler
+- [x] 10. Guest Engagement — reservations + loyalty view
+- [x] 11. Polish — full i18n coverage, error/loading states, responsive nav
+- [ ] 12. (Optional) Backend deployment to persistent host (Render/Railway/Fly.io)
 
 ---
 
 ## Open Decisions / Blockers
 
-- ~~Blocking Task 1 of the AI Consultant implementation~~ — **resolved**: `OPENAI_API_KEY` was filled into `backend/.env`, but the OpenAI account had no billing/credits configured. **Superseded**: the AI Consultant was switched to Cohere (2026-06-20) and is now fully verified live with a real LLM reply — see that log entry.
-- **Firestore free-tier read quota repeatedly exhausted** (Spark plan, 50K reads/day). First hit 2026-06-20 from unfiltered full-collection scans on the 10k-doc `orders` collection (root-caused and fixed — see that entry). Confirmed exhausted again on 2026-06-21 on two separate occasions, including once right after what should have been a fresh quota day locally — strongly suggests the actual reset boundary is midnight **Pacific Time**, many hours behind local (Vietnam, UTC+7) time, so a local calendar-date change does not mean the quota has reset yet. **Currently blocking Task 5 (live Playwright/Firestore verification) of the FOH-bill-clarity + Dashboard-revenue-range-KPI plan** — Tasks 1-4 are implemented, reviewed, and committed; only the live verification pass remains. To check whether quota has actually reset before retrying, use the Firebase Console's Firestore → Usage tab (shows a live countdown) rather than going by local date/time.
-- Backend has no deployed host yet (still local-only). Frontend going to Vercel doesn't include the backend — `VITE_API_BASE_URL` in Vercel will need updating once a backend host (Render/Railway/Fly.io/Cloud Run) is chosen.
+- **Firestore free-tier quota (Spark plan, 50K reads/day)** exhausted repeatedly. Resets at **midnight Pacific Time = 14:00 Vietnam time**. Check Firebase Console → Firestore → Usage tab before retrying scripts — do not rely on local date change.
+- **June demo data not yet loaded.** Scripts are written and ready; blocked on quota. After quota resets, run in order:
+  1. `node backend/src/scripts/resetJuneData.js` ← deletes old data, resets tables
+  2. `node backend/src/scripts/generateJuneData.js` ← writes 1,560 orders + 210 reservations
+  3. `node backend/src/scripts/computeHistoricalBaseline.js` ← recomputes revenue baseline
+- **Backend has no deployed host.** All previously backend-dependent features (profit summary, inventory forecast, order creation) have been rewritten to use Firestore directly from the browser. The only remaining backend-only features are: AI Consultant (Cohere API calls, conversation storage), Insights engine (60s scheduler + rule-based analysis), and `acknowledge` endpoint. These require a persistent-process host (not Vercel serverless) if deployed.
 
 ---
 
-## Acceptance Checklist (from §11 — final validation, not yet attempted)
+## Architecture Notes
 
-- [ ] App runs locally end-to-end (`npm run dev` frontend, `npm start` backend)
-- [ ] Language toggle switches every visible string, including AI-generated insight cards
-- [ ] Creating an order decrements inventory and appears in Kitchen Display in real time
-- [ ] Forcing a stockout produces a new `insights` document visible on Dashboard within one analysis cycle
-- [ ] Firestore security rules tested: `staff`-role user cannot write to `insights` or `inventory`
-- [ ] No hardcoded Firebase credentials committed to the repo
+- **AI Consultant:** Cohere API (`command-a-03-2025`), not OpenAI. Free tier key in `backend/.env`. Conversation persisted to `consultant_conversations/{uid}/messages`. Manager/admin only.
+- **No backend calls from frontend for data:** all reads/writes go directly to Firestore SDK. `VITE_API_BASE_URL=http://localhost:4000` is only used for AI Consultant messages and insights acknowledge — these fail gracefully in production (Consultant shows error, Dashboard acknowledge silently catches).
+- **Historical baseline:** precomputed into `analytics/historical_baseline` by `computeHistoricalBaseline.js`. Used by profit controller and AI Consultant for "vs typical" comparisons.
+- **Firestore security rules:** published live. Staff role cannot write insights/inventory/staff_shifts. `consultant_conversations/{uid}` is owner-only.
+
+---
+
+## Current Data Model (June 2026 target)
+
+| Parameter | Value |
+|---|---|
+| Tables | T01–T08 (capacity 2–6) |
+| Sessions | Lunch 11:00–14:00 · Dinner 18:00–22:00 |
+| Channels | `dine_in` + `takeaway` only (own delivery, no third-party) |
+| Occupancy | 70% · avg dining time 60 min |
+| Orders | ~52/day · 1,560 total (June 1–30) |
+| Revenue | ~270M VND/month |
+| Reservations | ~210 (dine-in guests, 90% confirmed) |
+
+---
+
+## Acceptance Checklist (§11)
+
+- [x] App runs on Vercel (frontend)
+- [x] Language toggle switches every visible string (VI/EN pill in navbar)
+- [x] Creating an order saves to Firestore and updates table status in real time
+- [x] Table grid shows elapsed dining time badge from real `seated_at` field
+- [x] Firestore security rules published
+- [x] No hardcoded Firebase credentials in repo
+- [ ] June demo data loaded (blocked on quota)
+- [ ] AI Consultant verified with real Cohere reply on production URL
+- [ ] Backend deployed to persistent host
 
 ---
 
 ## Log
 
-### 2026-06-19
-- Build instruction doc reviewed. PROGRESS.md created. No code written yet.
-- **Step 1 done:** scaffolded `frontend/` (Vite + React + Tailwind v4 via `@tailwindcss/vite` + react-router-dom + i18next/react-i18next/i18next-browser-languagedetector + firebase SDK). Folder structure matches §2 spec (`components/`, `pages/`, `locales/{en,vi}/`, `context/`, `hooks/`, `services/`).
-  - `services/i18n.js` wired with seed `en`/`vi` translation.json files (default `vi`, localStorage detection).
-  - `services/firebase.js` and `services/api.js` created with placeholder env vars (`VITE_FIREBASE_*`, `VITE_API_BASE_URL`); `.env.example` added, `.env*` gitignored.
-  - Minimal pages: `Dashboard`, `Login`, `Settings` (with working language toggle) wired into `App.jsx` via `react-router-dom`.
-  - Verified: `npm run build` succeeds.
-- **Step 1 done:** scaffolded `backend/` (Express, ESM `type: module`). Folder structure matches §2 spec (`src/routes/`, `src/controllers/`, `src/services/`, `firebaseAdmin.js`, `server.js`).
-  - `firebaseAdmin.js` reads `FIREBASE_SERVICE_ACCOUNT` from env, warns and no-ops if unset (no real Firebase project yet).
-  - `middleware/requireAuth.js` added (verifies Firebase ID token; not yet wired to any routes).
-  - `services/{rootCauseEngine,riskForecast,recommendationEngine}.js` created as **stubs only** (throw "not implemented") — full logic deferred to build order step 9 per the don't-get-ahead rule in §9.
-  - `server.js` has only `/api/health` for now; real routes come in step 7+ per §9.
-  - Verified: `node src/server.js` boots and `GET /api/health` returns `{"status":"ok"}`.
-- **Step 2 done:** Firebase project `group13-4182f` connected for real.
-  - Frontend: user provided real `VITE_FIREBASE_*` values in `frontend/.env` (gitignored).
-  - Backend: user provided service-account JSON, encoded into `backend/.env` as `FIREBASE_SERVICE_ACCOUNT` (single-line JSON string, gitignored). The loose JSON key file was deleted from the repo root after being copied into `.env` (it was sitting unprotected outside gitignore — flagged to user after the fact).
-  - Hit and fixed a firebase-admin v14 ESM bug: `import admin from 'firebase-admin'` gives `admin.apps === undefined` under ESM. Fixed by switching `backend/src/firebaseAdmin.js` to the modular subpath imports: `firebase-admin/app` (`initializeApp`, `cert`, `getApps`), `firebase-admin/firestore` (`getFirestore`), `firebase-admin/auth` (`getAuth`).
-  - Verified: backend boots, `db`/`auth` both initialize against the real project, `/api/health` still responds.
-  - User confirmed Firestore (production mode) and Authentication → Email/Password provider are already enabled in the Firebase Console.
-- **Step 3 done:** Auth flow built and verified end-to-end via a Playwright-driven browser test against the real dev servers.
-  - `frontend/src/context/AuthContext.jsx`: wraps Firebase Auth state (`onAuthStateChanged`), exposes `user`, `profile`, `role` (looked up from `users/{uid}` in Firestore), `login`, `logout`.
-  - `frontend/src/components/ProtectedRoute.jsx`: redirects unauthenticated users to `/login`, shows loading state while auth resolves.
-  - `Login.jsx` now calls real `signInWithEmailAndPassword`; `App.jsx`/`main.jsx` wire `AuthProvider` + protect the Dashboard/Settings routes; nav shows role badge + Log out when signed in.
-  - Added `firestore.rules` (repo root) per §8.5 — staff can't write `insights`/`inventory`/`staff_shifts`/`external_factors` (manager/admin only); everyone signed-in can read; `users/{uid}` self-writable only. **User published this to the Firebase Console.**
-  - Test user created in Firebase Auth (`hgiang2308@gmail.com`) by the user; Claude used the Admin SDK to look up the UID and seed `users/{uid}` with `role: admin`.
-  - Verified live: started both dev servers, drove a headless Chromium session (ad-hoc Playwright script, `chromium-cli` skill not installed) through login → redirect to Dashboard → `admin` role badge rendered → zero console errors. Screenshots confirmed visually.
-  - Note: first run hit `FirebaseError: Missing or insufficient permissions` on the `users/{uid}` read because `firestore.rules` was written locally but not yet deployed — resolved once user published rules via Console. Worth remembering: any new Firestore collection/rule change needs an explicit Console publish (or `firebase deploy --only firestore:rules` via CLI) — it does not take effect just by editing the local `firestore.rules` file.
-- **Step 4 done:** confirmed i18n toggle works end-to-end via Playwright demo — login (vi default), dashboard, settings dropdown, nav all switch correctly between `vi`/`en`.
-  - **Bug found and fixed:** app was defaulting to English for new visitors instead of the spec'd Vietnamese default. Cause: `i18next-browser-languagedetector`'s `detection.order` included `'navigator'`, which picked up the browser/OS locale before falling back to `fallbackLng: 'vi'`. Fixed in `frontend/src/services/i18n.js` by setting `detection.order: ['localStorage']` only — now correctly defaults to `vi` until the user explicitly toggles (which persists to `localStorage`).
-- **Step 5 done:** `backend/src/scripts/seed.js` writes mock data directly to Firestore via the Admin SDK (run with `node src/scripts/seed.js` from `backend/`).
-  - Seeded: 8 `tables` (mixed open/reserved/dining/cleanup), 6 `inventory` SKUs (including two near/at stockout, for step 9's risk forecasting later), 4 `staff_shifts`, 15 `orders` (randomized items from a 5-item mock menu, channels, statuses, VND totals, timestamps spread across the last 6 hours).
-  - Re-runnable: uses deterministic doc IDs (`table_id`/`sku`/`staff_id`/order `id`) via Firestore batch `set`, so re-running overwrites cleanly instead of duplicating.
-- **Step 6 done:** real `frontend/src/pages/Dashboard.jsx` replacing the step-1 placeholder.
-  - Live Firestore reads via `onSnapshot` on `orders`, `tables`, `insights` (auto-updates without refresh).
-  - Computes: today's revenue (sum of `served` orders' `total_amount` for today), covers (count of today's served orders), avg ticket, table occupancy count — all from real seeded data.
-  - Table occupancy heatmap: color-coded grid by status (open/reserved/dining/cleanup), bilingual status labels.
-  - Active alerts feed: renders `insights` docs (`summary_en`/`summary_vi` per language) — currently empty since the AI engine (step 9) doesn't exist yet, shows a "no alerts" empty state instead.
-  - Added `dashboard.*` keys to both `locales/{en,vi}/translation.json` (revenue/covers/avgTicket/tableOccupancy/alerts/status labels), VND formatting via `Intl.NumberFormat`.
-  - Verified live via Playwright screenshot: 1.975.000 ₫ revenue, 9 covers, 219.444 ₫ avg ticket, 4/8 tables occupied, correct color-coded statuses, zero console errors.
-- **Note for next session:** dev servers were restarted multiple times during this work (clean `pkill -f vite` / `pkill -f "node src/server.js"` then relaunch) — if the user reports a blank page again, first check whether dev servers are actually running (`curl localhost:5173`, `curl localhost:4000/api/health`) before assuming a code bug. Most "blank dashboard" reports so far were either stale dev server processes or — legitimately — pages that hadn't been built yet for that build-order step.
-- **Step 7 done:** Front of House — table grid + POS-lite + payment, with real backend business logic for order creation per §7's "frontend reads Firestore directly, backend handles write-with-business-logic" split.
-  - `backend/src/data/menu.js`: 5-item MVP menu, each mapped to one inventory `ingredient_sku` + `ingredient_qty` consumed per unit (mirrors `frontend/src/data/menu.js`, which only carries name/price for the POS picker — no ingredient logic on the client).
-  - `backend/src/controllers/ordersController.js` + `routes/orders.js`, mounted at `/api/orders` in `server.js`:
-    - `POST /api/orders` (requireAuth): validates items against the menu, runs a Firestore transaction that creates the order (`status: open`) and decrements `inventory.current_stock` for each item's ingredient (clamped at 0, not blocking — stockouts are meant to be forced for testing, not prevented), and flips the table to `dining`.
-    - `PATCH /api/orders/:id/status` (requireAuth): transitions order status; when moving to `in_kitchen`, also creates one `kitchen_queue` doc per order item (`status: queued`).
-  - `frontend/src/services/api.js` updated to attach the current Firebase ID token (`Authorization: Bearer <token>`) to every request, so the new `requireAuth` middleware (built in step 1, unused until now) actually gets exercised.
-  - `frontend/src/pages/FrontOfHouse.jsx`: click a table → if it has an active (non-cancelled, not-yet-paid) order, shows that order's state (open/in_kitchen/served) with the right action; otherwise shows a POS-lite qty-stepper picker → "Create Order". "Mark Served" and payment recording (cash/card/momo, direct Firestore write since it's just data capture, not business logic) are also wired — payment additionally flips the table to `cleanup`.
-  - Added `foh.*` i18n keys to both locale files.
-  - **Verified live end-to-end via Playwright against the real dev servers + real Firestore**, including a case the test script didn't even plan for: clicking a table that already had a seeded `in_kitchen` order correctly rendered that order's state instead of an empty cart (proves the "find this table's active order" query works on real data, not just freshly created orders). Full loop tested: new order created (2× Mango Sticky Rice, 120.000₫) → sent to kitchen → confirmed in Firestore that `inventory/TH-RICE-01.current_stock` went 40 → 39.7 (exactly 2×0.15) and a `kitchen_queue` doc was created with `status: queued` → marked served → payment recorded → table auto-flipped to `cleanup` → panel correctly reset to a fresh order form. Zero blocking console errors (one transient `Could not reach Cloud Firestore backend` retry warning appeared once, self-recovered, not a real bug).
-  - This directly satisfies the §11 acceptance checklist item: "Creating an order decrements inventory and appears in the Kitchen Display in real time" (Kitchen Display UI itself is step 8 — `kitchen_queue` docs already exist and are queryable, just no dedicated KDS screen yet).
-- **Step 8 done:** Back of House — single page with four sections (matches §5's single-screen-with-subsections structure, same pattern as Dashboard).
-  - `backend/src/controllers/inventoryController.js` + `routes/inventory.js` → `GET /api/inventory/forecast` (requireAuth): rule-based time-to-stockout per item (`current_stock / (avg_daily_consumption/24)`), flags `at_risk` when ≤6h remaining, sorted by urgency.
-  - `backend/src/controllers/profitController.js` + `routes/profit.js` → `GET /api/profit/summary?range=` (requireAuth): revenue from today's `served` orders; `food_cost` estimated as a flat 32% of revenue (no per-ingredient cost data in the MVP data model — documented as a rule-based assumption, not real cost accounting); `labor_cost` from `staff_shifts` duration × an assumed 25,000₫/hr. Noted in code comments that `range=week` doesn't yet differentiate from `day` since only "today's" data is seeded.
-  - `frontend/src/pages/BackOfHouse.jsx`: Inventory table (red-highlighted at-risk rows with stockout time), Kitchen Display (cards from live `kitchen_queue` onSnapshot, elapsed-time counter, red overload banner if active queue depth ≥5), Labor (on-shift count vs. recent 2h order volume, under/overstaffed flag, shift roster), Profit Snapshot (4 metric cards).
-  - Added `boh.*` i18n keys to both locale files; wired `/boh` route + nav link in `App.jsx`.
-  - **Verified live end-to-end via Playwright** against real dev servers + real Firestore + real backend computation: inventory table correctly flagged Shrimp and Chicken Thigh as at-risk (both seeded with low stock) with computed stockout times; Kitchen Display showed the `M-MANGO-STICKY` item created during the step 7 demo with a live elapsed-time counter; Labor section showed all 4 seeded staff with correct task counts and no false staffing flag; Profit Snapshot computed 2.035.000₫ revenue → 651.200₫ food cost → 800.000₫ labor cost → 583.800₫ profit, matching the rule-based formulas by hand-check. Zero blocking console errors.
-- **Step 9 done:** AI Intelligence Engine — turned the step-1 stub services into real rule-based logic, wired `/api/insights`, populated the previously-empty Active Alerts feed.
-  - `backend/src/services/riskForecast.js`: `forecastStockout` (≤6h remaining → risk_forecast insight, severity `critical` if <2h), `forecastKitchenOverload` (active queue depth ≥5 → insight). Both pure functions, no DB access.
-  - `backend/src/services/rootCauseEngine.js`: `analyzeRootCause` compares revenue in the last 2h window vs. the prior 2h window of *today's* served orders (documented MVP simplification — no real historical baseline exists yet since only "today" is seeded; a future pass with real multi-day data should replace this), flags a ≥15% drop and cross-references kitchen overload / stockout SKUs / complaint count (complaints always 0 for now — `feedback` collection is never seeded/written to).
-  - `backend/src/services/recommendationEngine.js`: `recommendationFor` returns templated bilingual recommendation text appended to the insight's `summary_en`/`summary_vi` (matches the proposal's example format — no separate recommendation field needed since §4's `insights` schema only has summary fields).
-  - `backend/src/controllers/insightsController.js`: orchestrates the above against live Firestore data (`runAnalysisInternal`, called by both the manual endpoint and the scheduler), plus `listInsights` (GET, filterable by `type`/`severity`/`status` query params) and `acknowledgeInsight` (POST, **role-checked**: reads the caller's `users/{uid}.role` from Firestore and rejects with 403 unless `manager`/`admin` — note this is an app-level check in the controller, separate from and in addition to the Firestore security rules, since the Admin SDK bypasses those rules entirely).
-  - Dedup: before creating an insight, checks for an existing non-`acted_on` insight of the same type with matching `related_entities` key created in the last 30 minutes — prevents the same stockout/overload from spamming a new insight every analysis cycle. Verified live: re-running the analysis immediately after a successful run produced `{"created":0}`.
-  - Routes: `GET/POST /api/insights*` (`routes/insights.js`) and `POST /api/run-analysis` (`routes/runAnalysis.js`, separate top-level path per §7's endpoint list) — both `requireAuth`-protected, mounted in `server.js`.
-  - Scheduled job: `setInterval` in `server.js` calls `runAnalysisInternal()` every 60 seconds. Documented in code as a demo-compressed interval — §6 specifies "every 5–15 simulated minutes," and 60s of wall-clock time was chosen so the insights feed visibly updates during a live demo rather than requiring a multi-minute wait.
-  - Frontend: new `frontend/src/pages/Insights.jsx` (§5 item 6) — type/severity filter dropdowns, severity-colored cards, status badges, "Acknowledge" button on `new` insights calling the backend endpoint. `Dashboard.jsx`'s "Active Alerts" section (built in step 6, empty until now) got the same Acknowledge button plus a link to the full feed. Added `insights.*` i18n keys to both locale files; wired `/insights` route + nav link.
-  - **Verified end-to-end against the real project**: signed in via the Firebase REST API to get a real ID token for direct `curl` testing of the backend before touching the browser (`POST /api/run-analysis`, `GET /api/insights` with and without filters, `POST /api/insights/:id/acknowledge`) — confirmed the scheduler had already auto-created 2 correct insights (Shrimp and Chicken Thigh stockout warnings, both with bilingual summaries and appended recommendations) before the manual trigger was even called, and that re-running produced 0 new insights (dedup working). Then drove the full UI live via Playwright: Dashboard alerts populated, Insights feed page rendered both with correct type/severity/status labels, and clicking "Acknowledge" on the still-`new` Chicken Thigh insight flipped its badge from "Mới" to "Đã xác nhận" in real time. Zero console errors.
-- **Step 10 done:** Guest Engagement — reservations list + loyalty/CLV view, both read directly from Firestore client-side (no backend logic needed, just display/aggregation — consistent with §7's "frontend reads Firestore directly for live data" split).
-  - **Decision (user confirmed):** loyalty is based on `reservations.guest_name`, not `orders` — the `orders` schema (§4) has no guest-identity field, only `table_id`, so repeat-customer tracking has to come from reservations. Documented here in case a future iteration wants order-level CLV (would require adding a guest identity field to `orders` first).
-  - `backend/src/scripts/seedReservations.js`: new one-off seed script (separate from `seed.js`) — 11 mock reservations across 6 guests, 3 of whom have repeat visits (2-3 each) plus one cancelled reservation, so the loyalty view has something real to aggregate. **Not idempotent** (auto-generated doc IDs, no natural unique key in the §4 schema) — re-running duplicates, noted in a code comment.
-  - `frontend/src/pages/GuestEngagement.jsx`: **Reservations** section — upcoming `confirmed` reservations only, sorted chronologically, status badges. **Top Repeat Guests** section — client-side aggregation over all non-cancelled reservations grouped by `guest_name`, counts visits, tracks most recent visit, filters to guests with ≥2 visits, sorted by visit count descending.
-  - Added `guest.*` i18n keys to both locale files; wired `/guests` route + nav link in `App.jsx`.
-  - **Verified live via Playwright**: reservations table showed all 4 upcoming confirmed reservations correctly sorted by time; loyalty table correctly surfaced exactly the 3 repeat guests seeded (Le Hoang Long ×3, Nguyen Van An ×3, Tran Thi Bich ×2) with accurate last-visit timestamps, while the two one-time guests and the cancelled reservation were correctly excluded. Zero console errors (only the same recurring transient Firestore reconnect notice seen in every demo this session, which self-resolves and isn't a real bug).
-- **Step 11 done:** Polish pass across all 7 pages. Found and fixed 4 real bugs:
-  - **i18n gap:** `App.jsx`'s "Log out" button was hardcoded English, never translated even when in Vietnamese mode. Added `auth.logout` key to both locale files, wired it in. (Settings.jsx's `<option>Tiếng Việt</option>` / `<option>English</option>` were *not* a bug — language-name-in-its-own-language is the standard pattern for language selectors, deliberately not run through `t()`.)
-  - **Silent error swallowing:** `Insights.jsx`'s acknowledge handler had an empty `catch` block with just a comment — a failed acknowledge gave the user zero feedback, the button just stopped being disabled with no explanation. Added an `actionError` state, displayed above the filter row.
-  - **Same gap in `Dashboard.jsx`:** its acknowledge handler had no try/catch at all (an unhandled rejection on failure). Added the same error-state pattern.
-  - **Page blocked entirely by one failed API call:** `BackOfHouse.jsx`'s top-level loading gate included `inventory` and `profit` (both backend `fetch` calls), so if either failed, the *entire* page — including the Kitchen Display and Labor sections, which only need Firestore `onSnapshot` and have nothing to do with those two endpoints — would be stuck showing nothing. Split into independent per-section loading/error state (`inventoryError`, `profitError`) so a backend hiccup on one section doesn't take down sections that don't depend on it.
-  - **Responsive layout bug (caught via Playwright at 375px viewport):** the nav bar (`flex items-center gap-4`, no wrap/scroll handling) squeezed every link into an equal-ish narrow column at mobile width, wrapping each link's text mid-word into a tall, illegible stack — confirmed identically broken on Dashboard, FOH, BOH, and Insights screenshots. Fixed by making the nav `overflow-x-auto whitespace-nowrap` with `shrink-0` on each item, so it becomes a single-row horizontally-scrollable bar instead of wrapping. Page *content* (grids, tables) was already responsive without changes — this was purely a nav-chrome bug.
-  - Verified all fixes live: rebuilt, restarted dev servers, re-ran the mobile Playwright check (clean single-row scrollable nav now) and spot-checked the error-state and i18n fixes don't break the existing desktop flows (build passes, no new console errors).
-- **Step 12 (deployment, partially in progress):** user chose to push to GitHub and deploy the frontend to Vercel themselves, rather than Firebase Hosting/Cloud Functions as originally suggested in §2/§8. Backend hosting deferred to later (any persistent-process host works: Render/Railway/Fly.io/Cloud Run).
-  - **Git/GitHub:** the only existing git repo on the machine was rooted at the parent `GROUP 13` folder (uninitialized, containing unrelated sibling student projects — BT 2, BT 3, portfolio, qr-code-app, etc.). User chose to scope a fresh repo to `FINAL/` only rather than commit into the shared parent repo. Initialized git inside `FINAL/`, added a root `.gitignore` (node_modules, `.env*`, `dist/`, `.claude/` — the last because it's local Claude Code settings, not project config), wrote a project `README.md` covering local dev setup + the Vercel/backend-hosting split, verified no secrets/env files were staged (`git status --porcelain | grep` check before committing), then committed and pushed to `https://github.com/GIANG2385/FINAL` (`gh` was installed but not authenticated — device-code `gh auth login` kept timing out when run through Claude's backgrounded Bash tool since it can't wait for live browser interaction; resolved once the user ran it directly in their own Terminal.app).
-  - **Vercel:** user requested a specific `vercel.json` using an `experimentalServices` key (frontend + backend services). First deploy attempt failed: `Service "backend" must specify "framework", "entrypoint", or both "builder"/"runtime" with "entrypoint"` — Express isn't a Vercel-deployable framework type, and per the backend-hosting decision above it shouldn't be on Vercel anyway (the step-9 `setInterval` scheduler needs a persistent process, incompatible with serverless). Fixed by removing the `backend` block entirely, keeping only the `frontend` service (`root: "frontend"`, `framework: "vite"`). Committed and pushed; user is re-checking the Vercel build.
-  - Frontend env vars still need to be added in the Vercel dashboard (`VITE_FIREBASE_*` + `VITE_API_BASE_URL`) — instructions given, not yet confirmed done by user.
-- **New feature (beyond original build doc), in design phase:** AI Operations Consultant chatbot using the real OpenAI API — explicit user-requested exception to §10's "no external LLM calls unless asked." Went through full `superpowers:brainstorming` flow:
-  - Purpose: conversational consultant for the *owner* to ask "why" questions about the business, grounded in real live data (today's revenue/profit, at-risk inventory, active insights) — not a generic FAQ bot.
-  - Key decisions: fixed data snapshot per turn (not OpenAI function calling — simpler, matches this project's vertical-slice-first style), dedicated `/consultant` page (not a floating widget), manager/admin-only access (same role-gating pattern as `acknowledgeInsight`), conversation persisted to Firestore per-user (`consultant_conversations/{uid}/messages`), bot replies in **English only** regardless of UI language (the rest of the app's AI text is bilingual via templates, but freeform LLM output isn't templated — decided not to force bilingual generation for this iteration), model `gpt-4o-mini` by default via `OPENAI_MODEL` env var override, user already has an OpenAI API key so account-creation steps are skipped.
-  - Spec written and committed: `docs/superpowers/specs/2026-06-19-ai-consultant-chatbot-design.md`.
+### 2026-06-19 to 2026-06-21 (summarised)
 
-### 2026-06-20
-- **Spec approved**, moved to `superpowers:writing-plans`. Implementation plan written and committed: `docs/superpowers/plans/2026-06-19-ai-consultant-chatbot.md` — 7 tasks (OpenAI client wrapper → Firestore rules → backend endpoint → i18n keys → chat page → routing/nav → end-to-end verification). Plan explicitly documents that this project has no test framework; "TDD" steps are the same real `curl`/Node-script/Playwright verification convention used for every other feature so far.
-- **Execution started via `superpowers:subagent-driven-development`**, building directly on `main` (user explicitly chose this over a feature branch, consistent with how every other step in this project was built).
-  - Set up the ledger at `.superpowers/sdd/progress.md` (gitignored scratch, not committed) to track task completion across context resets.
-  - **Task 1 (OpenAI client wrapper) dispatched to a Haiku implementer subagent.** Completed steps 1-4 cleanly: `npm install openai`, wrote `backend/src/services/openaiClient.js` (matches `firebaseAdmin.js`'s warn-and-degrade-gracefully pattern for a missing required env var), added `OPENAI_API_KEY`/`OPENAI_MODEL` lines to `.env.example`, committed (`fa368e4`).
-  - **Blocked on step 5** (the real-API verification call): `backend/.env` had no `OPENAI_API_KEY` set, despite the user confirming during brainstorming that they already had a key. Implementer correctly escalated as `NEEDS_CONTEXT` rather than fabricating a key or skipping verification — this project's convention requires every verification step to actually run against real services, not be claimed.
-  - Added placeholder `OPENAI_API_KEY=`/`OPENAI_MODEL=gpt-4o-mini` lines directly to `backend/.env` (gitignored) so the user only has to fill in the value. **Still waiting on the user to provide the actual key** (same handoff pattern as the Firebase service account in step 2 — paste in chat or edit the file directly).
-  - Task 1 is **not yet marked complete in the ledger** — once the key is in place, the implementer (or a fresh one) needs to re-run only step 5 (the code from steps 1-4 doesn't need to change), then proceed to the task reviewer subagent before moving to Task 2.
-- Next: get the OpenAI API key from the user → finish Task 1 step 5 → task review → Tasks 2-7 in sequence per the plan. Separately, confirm Vercel deploy succeeded and decide on a backend host when ready.
-- **Tasks 2-6 completed** (between the previous log entry and this one — see commits `1105e94` through the pre-Task-7 HEAD): Firestore security rules for `consultant_conversations/{uid}/messages` (owner-only read/write, manager/admin role check), backend `POST /api/consultant/messages` endpoint (`backend/src/controllers/consultantController.js` + `routes/consultant.js`) with manager/admin role-gating, a live data snapshot built fresh per turn from today's served-order revenue + at-risk inventory + active insights (the "fixed data snapshot per turn" approach decided during brainstorming, not OpenAI function calling), conversation history capped at the last 10 messages, frontend `consultant.*` i18n keys in both locale files, the `Consultant.jsx` chat page (Firestore `onSnapshot` read — no optimistic local message state, role-gated via `<Navigate to="/" replace />` for non-manager/admin), and `/consultant` route + nav link wired into `App.jsx`. User confirmed the updated Firestore rules were published live to the Firebase Console.
+Steps 1–11 completed in full. Key milestones:
+- Firebase Auth + Firestore connected to real project `group13-4182f`
+- FOH POS-lite: order → kitchen → served → payment, full lifecycle verified via Playwright
+- BOH: inventory forecast, kitchen kanban, labor roster, profit snapshot
+- AI Intelligence Engine: rule-based stockout/overload/revenue-drop insights, 60s scheduler
+- Guest Engagement: reservations + loyalty aggregation from reservations
+- AI Consultant: built with OpenAI → switched to Cohere after billing issues; fully verified with real LLM reply grounded in live Firestore data
+- 10,000-order historical dataset loaded (Jan–May 2026); `analytics/historical_baseline` precomputed (avg 31M VND/day across 152 days)
+- Firestore quota exhausted multiple times from unfiltered full-collection scans; fixed by scoping all queries with `where('created_at', '>=', cutoff)` server-side filters and caching the historical baseline as a single doc (1 read vs 10k)
+- Dashboard revenue range toggle (today/week/month) with historical comparison line
+- FOH bill clarity: order panel styled as a bill with status badge + payment confirmation screen
 
-### 2026-06-20 (continued) — Task 7: end-to-end browser verification of the AI Consultant
-- **Restarted dev servers cleanly** (`pkill -f vite`, `pkill -f "node src/server.js"`, `pkill -f "nodemon src/server.js"`, relaunch both). `GET /api/health` → `{"status":"ok"}`, frontend → `200`.
-- **Confirmed the OpenAI quota blocker is still live** before running the full Playwright flow: a direct Node script calling `getChatCompletion` against the real `openaiClient.js` returned `429 You exceeded your current quota, please check your plan and billing details.` This is the same failure seen during Task 1. **The OpenAI happy path (a real AI-generated assistant reply) has never been verified working in this entire feature, end to end, due to the OpenAI account having no billing/credits configured.** This is the single most important caveat for whoever picks this up next.
-- **Ran the adapted Playwright flow** (`/tmp/demo-consultant.mjs`, login as `hgiang2308@gmail.com` / admin role → `/consultant` → send a question → screenshot → reload → screenshot):
-  - User's message persisted to and rendered from Firestore (`consultant_conversations/{uid}/messages` via `onSnapshot`) both immediately after sending and **after a full page reload** — proves the read is a real Firestore subscription, not optimistic local state (the component holds no local "sent message" state at all; `Consultant.jsx` only renders from `messages`, which comes exclusively from `onSnapshot`).
-  - Because the OpenAI call failed with 429, the backend correctly returned `502 { error: 'AI Consultant is temporarily unavailable' }`, and the frontend's `catch` block in `handleSend` set `error` to `t('consultant.error')`, rendering as a red error message below the chat ("Trợ lý AI tạm thời không khả dụng. Vui lòng thử lại." — UI was in Vietnamese for this test account). No assistant reply bubble appeared, as expected, since the assistant message is only persisted to Firestore after a successful OpenAI call (which never happened).
-  - `ERRORS: []` for actual JS errors/exceptions — the only two console entries were a benign `Failed to load resource: 502` network log (not a JS error) and the same transient "Could not reach Cloud Firestore backend... offline mode" self-recovering notice seen in every other demo throughout this project. **No real console errors or unhandled exceptions** — confirms the 502 path is handled cleanly via try/catch with no JS-level breakage.
-  - Screenshots captured and visually confirmed: `/tmp/consultant-01-empty.png` (chat page shell, input box, nav), `/tmp/consultant-02-reply.png` (user message bubbles rendered purple/right-aligned, red error text below, input still usable) — both show a correctly working UI shell, just exercising the error path instead of a success reply.
-- **Step 5 — role-gating verified with a real staff test user.** No staff-role test user existed yet, so created one: Firebase Auth user `staff.test@pangpang.local` (Admin SDK `createUser`), then seeded `users/{uid}` with `role: 'staff'`. Verified all three required checks:
-  1. Logged in as the staff user via Playwright (`/tmp/demo-staff-gating.mjs`) — the "AI Consultant" nav link (`Tư vấn AI`) does **not** appear in the nav bar.
-  2. Direct navigation to `http://localhost:5173/consultant` as the staff user redirects back to `/` (the `<Navigate to="/" replace />` guard in `Consultant.jsx` fired correctly).
-  3. Direct `curl POST /api/consultant/messages` using the staff user's real Firebase ID token (obtained via the Identity Toolkit REST `signInWithPassword` endpoint) returned `403 {"error":"Only manager/admin can use the AI Consultant"}` — confirms the backend's own role check (reading `users/{uid}.role` from Firestore, independent of the security rules since the Admin SDK bypasses those) is enforced, not just the frontend route guard.
-  - Zero console errors during the staff-gating Playwright run either.
-- **Verification summary — what WAS verified:** Firebase auth + login flow; role-gated routing (nav link hidden + redirect) for both manager/admin (allowed) and staff (blocked) roles; backend role check returning 403 for non-privileged roles; user message correctly persisted to and read back from Firestore (`consultant_conversations` subcollection) including survival across a full page reload; the full error path (OpenAI 429 → backend 502 → frontend catch → translated error message rendered) with zero JS console errors; Firestore security rules confirmed published live in the Firebase Console (Task 2-6 work, re-confirmed by the user before this task).
-- **What remains UNVERIFIED:** a real, successful OpenAI-generated assistant reply has never been seen rendered in the UI anywhere in this project's history. The data-grounding snapshot logic (`buildDataSnapshot` in `consultantController.js` — today's revenue from served orders, at-risk inventory items, active insights) has been read and reasoned about but never exercised against a live model response, so whether the prompt actually produces a good, data-grounded answer is **unknown** until OpenAI billing is fixed. Once the user adds billing/credits to the OpenAI account, a follow-up verification pass should re-run the Step 2-4 Playwright flow from the original task brief (`/tmp/demo-consultant.mjs` as written, expecting a real assistant reply bubble with grounded content) before this feature can be called fully done.
-- **Open Decisions** "AI Consultant chatbot implementation plan not yet written" item: now resolved (plan was written and fully executed across Tasks 1-7); see the updated note above for the remaining OpenAI-billing caveat, which replaces it as the active blocker.
-- Committed verification work (PROGRESS.md update only — no code changes were needed). **Not yet pushed** — pending explicit confirmation.
+### 2026-06-25
 
-### 2026-06-20 (continued)
-- **Switched AI Consultant from OpenAI to Cohere.** User generated a free Cohere API key after OpenAI billing remained unresolved. Replaced `backend/src/services/openaiClient.js` with `backend/src/services/cohereClient.js` (same `getChatCompletion(messages)` interface via a direct `fetch` call to Cohere's `/v2/chat` REST endpoint — no extra SDK dependency; removed the now-unused `openai` npm package). Updated `consultantController.js`'s import, `.env`/`.env.example` (`COHERE_API_KEY`, `COHERE_MODEL`). Hit one snag: the brief/initial default model `command-r-plus` was deprecated by Cohere in Sept 2025 — discovered via `GET /v1/models`, switched default to `command-a-03-2025` (Cohere's current flagship chat model). **Live-verified end-to-end**: `POST /api/consultant/messages` now returns a real Cohere-generated reply correctly grounded in live Firestore data (referenced actual at-risk inventory SKUs), and both sides of the conversation persist to `consultant_conversations/{uid}/messages`. This resolves the previously-open "OpenAI happy-path unverified" gap from Task 7 — the AI Consultant chatbot feature is now fully verified working end-to-end with a real LLM.
-- **Loaded a 10,000-order historical dataset** (`generate_dataset.js`, user-authored, root of repo) covering Jan 1 – May 31 2026. Found and fixed a timezone bug before loading: `generateRandomDate()` formatted UTC timestamps with a `.replace('Z', '+07:00')` that mislabeled (not converted) the offset, producing some `served_at` timestamps earlier than their `created_at` (confirmed: -406 min on a sample order). Fixed with a proper `toBangkokISOString()` helper; regenerated and confirmed 0 invalid orderings across all 9,491 served bulk orders. Loaded via new `backend/src/scripts/loadBulkOrders.js` (batched Firestore writes, 500/batch, converts ISO strings to real Firestore Timestamps). `orders` collection now holds 10,016 docs (10,000 bulk + 16 pre-existing).
-- **Extended analytics/insights/AI-consultant logic to use the historical data as a real comparison baseline** (user-directed design choice — historical data predates "today" so it can't be used as a rolling recency window, only as a benchmark):
-  - New `backend/src/services/historicalBaseline.js` exposes `getHistoricalBaseline()` (avg daily revenue, avg revenue by day-of-week, avg revenue by hour-of-day, computed from pre-today served orders) and `typicalRevenueForWindow()`.
-  - `rootCauseEngine.js`: `analyzeRootCause` now compares recent revenue against the historical baseline for the same time-of-day window, replacing the old "prior 2h of today" same-day comparison (which was a known, documented MVP simplification — now resolved).
-  - `profitController.js`: `range=week`/`range=month` now do real calendar-window filtering (previously `week` silently returned the same data as `day` — a known, documented limitation, now resolved) and the response includes `historical_avg_revenue` (baseline scaled to the requested range) for comparison.
-  - `consultantController.js`: `buildDataSnapshot` now tells the LLM today's revenue *and* the historical average for this day-of-week, with a computed percent-vs-typical, so the AI Consultant can answer "is today better/worse than usual" questions grounded in real history instead of guessing.
-- **Firestore free-tier read quota exhausted mid-implementation.** Root cause: several places (`profitController.js`, `consultantController.js`, `insightsController.js`'s 60-second scheduler, and three frontend pages' `onSnapshot` listeners on the full `orders` collection) did unfiltered full-collection scans — cheap at ~16 docs, catastrophic at 10,000+ docs (the scheduler alone would have read 10k+ docs every 60 seconds). Confirmed via a direct Firestore call reproducing `RESOURCE_EXHAUSTED` independent of app code. **Restructured all of these**: backend controllers now use server-side `.where('served_at' | 'created_at', '>=', cutoff)` range filters (single-field, no composite index needed) instead of pulling the whole collection into memory; `Dashboard.jsx`, `FrontOfHouse.jsx`, `BackOfHouse.jsx`'s `onSnapshot` listeners are now scoped to the last 24h via the same pattern. The historical baseline itself is no longer computed live on every request — `backend/src/scripts/computeHistoricalBaseline.js` is a one-off script that precomputes it once into a single doc (`analytics/historical_baseline`), which `historicalBaseline.js` reads (1 read, cached 1h) instead of re-scanning 10k docs.
-- **Open item:** `computeHistoricalBaseline.js` itself needs one more large read (the historical 10k-order scan) to populate `analytics/historical_baseline` for the first time — this hasn't run yet because the quota is currently exhausted (confirmed by reproducing `RESOURCE_EXHAUSTED` directly against Firestore). User chose to wait for the daily quota reset (Spark/free plan, resets ~daily) rather than add billing. Until that script runs, `getHistoricalBaseline()` falls back to an empty baseline (zeros) — the new historical-comparison features (root-cause baseline, profit `historical_avg_revenue`, AI Consultant's "vs typical" line) will silently report no comparison data until then, but nothing is broken. All other restructured queries (today/recent-window filters) work independent of this and don't require the precompute step.
-- **Next:** once quota resets, run `cd backend && node src/scripts/computeHistoricalBaseline.js`, then re-verify `/api/profit/summary?range=week`, `range=month`, `/api/insights` (trigger a manual run), and the AI Consultant's "vs typical" comparison line. Then commit and push these changes (not yet committed as of this entry).
+**Pang Pang brand redesign + full UI restructure**
 
-### 2026-06-21
-- **Attempted the pending `computeHistoricalBaseline.js` run.** It succeeded: "Computed baseline from 9501 historical orders across 152 days, avgDailyRevenue: 31,043,421" — `analytics/historical_baseline` is now populated in Firestore.
-- **Quota was still exhausted immediately after**, though — a follow-up `/api/profit/summary` call and even a single trivial single-document read both failed with the same `RESOURCE_EXHAUSTED` error (confirmed directly against Firestore, independent of app code), so the precompute script's read apparently used up whatever small amount of quota had become available. Likely explanation: Firebase Spark plan quota resets at midnight **Pacific Time**, not local (Vietnam, UTC+7) time — the calendar date changing locally doesn't mean the quota day has rolled over yet from Firestore's perspective.
-- **Status:** the baseline doc is done and won't need to be recomputed again unless more historical data is loaded. Still pending: a live re-verification of `/api/profit/summary?range=week`/`month`, `/api/insights` manual trigger, and the AI Consultant's "vs typical" comparison line — blocked until quota actually resets. User chose to wait rather than upgrade to Blaze. Nothing has been committed yet.
-- **Second quota-exhaustion confirmation.** User reported the quota had reset; a direct single-document Firestore read was attempted to verify before resuming Task 5 of a separate plan (below) and failed with the same `RESOURCE_EXHAUSTED` error, independent of app code. This is the second time "local date changed" did not correspond to an actual Firestore quota reset — reinforces the Pacific Time boundary theory noted in Open Decisions. User chose to wait again rather than upgrade to Blaze, and to check the Firebase Console's quota countdown directly before the next retry instead of going by local date.
+CSS custom properties in `index.css`:
+- `--pp-primary: #E8002A` (chili red), `--pp-page-bg: #FFF8D6` (warm yellow), `--pp-navbar-bg: #1A1A1A` (dark black)
+- Full token set: success/warning/danger/info/neutral/gold/silver/bronze status colors
 
-- **New feature: FOH bill clarity + Dashboard revenue range KPI.** User asked to improve Front of House to read clearly as a POS (payment/bill flow) and Dashboard to show 4 KPI cards plus revenue for today/7-day/month. Went through `superpowers:brainstorming` → design approved → `superpowers:writing-plans` → `superpowers:subagent-driven-development`, building directly on `main` (consistent with this project's established pattern).
-  - **Design** (`docs/superpowers/specs/2026-06-21-foh-dashboard-clarity-design.md`): Dashboard's Revenue KPI card gets a Today/7 Days/Month toggle (driving the existing `/api/profit/summary?range=...` endpoint, extended the day before) with a color-coded "{{pct}}% vs typical" line using `historical_avg_revenue`; Covers/Avg Ticket/Table Occupancy stay today-only/live, unchanged. FOH's order panel is restyled to read as a bill (heading "Bill — {table}", a status badge for Open/In Kitchen/Served, heavier total-row styling) and gains a "Payment received ✓" confirmation screen (with a "Start New Order" button) shown after a successful payment instead of the panel silently resetting — implemented as local component state (`paymentConfirmation`), no backend or schema changes.
-  - **Plan** (`docs/superpowers/plans/2026-06-21-foh-dashboard-clarity.md`): 5 tasks — i18n keys, Dashboard range toggle, FOH bill styling, FOH payment confirmation, end-to-end browser verification.
-  - **Execution via subagent-driven-development:**
-    - Task 1 (i18n keys, commit `985cf00`): reviewer approved — Vietnamese phrasing judged natural and consistent with existing house style (the brief deliberately left exact vi wording to the implementer rather than mandating it).
-    - **Housekeeping found mid-Task-2:** a large amount of earlier work (the Cohere switch, historical-baseline services/scripts, and the Firestore quota-fix query-scoping across 3 backend controllers + 3 frontend pages + the bulk dataset files) had been sitting **uncommitted** in the working tree this whole time, despite earlier session summaries saying it was "pending commit." Committed it now in logical groups: `e8fbf18` (Cohere switch), `e8b5b07` (historical dataset + baseline + quota-fix query restructuring), `952e798` (PROGRESS.md). Also found and reverted one unrelated, accidental single-character corruption in `PangPang_SmartOps_AI_Build_Instructions.md` (a broken closing code-fence, ` ``` ` → ` `` `) that had nothing to do with any intentional change — discarded via `git checkout`, not committed.
-    - Task 2 (Dashboard revenue range toggle, commit `7dbd889`): reviewer approved, spec-exact match. Note: this commit incidentally bundled in the (legitimate, already-tested-elsewhere) 24h Firestore-scoping fix to `Dashboard.jsx` that was uncommitted in the same file before the task started — disclosed transparently by the implementer and confirmed by the reviewer as not scope creep.
-    - Task 3 (FOH bill styling + status badge, commit `4bec8e6`): reviewer approved, spec-exact match, no findings.
-    - Task 4 (FOH payment confirmation, commit `1fdfac0`): the riskiest task in the plan (restructuring existing JSX into a new fragment-wrapped conditional). Reviewer verified all 6 required behaviors by direct line-by-line reading of the resulting file (not just trusting that `npm run build` passed) — spec confirmed correct. One minor cosmetic finding: the new fragment's contents were left at their pre-restructure indentation level (functionally fine, JSX ignores whitespace, but visually misleading). Fixed directly (no new dependency needed — this project has no prettier configured) in commit `2b37126`.
-  - **Task 5 (end-to-end browser verification): BLOCKED on the Firestore quota exhaustion described above.** Re-attempted after the user reported a quota reset; still failed. Tasks 1-4's code is otherwise complete, reviewed clean, and committed — only the live Playwright/Firestore verification pass remains before this feature can be marked fully done.
-  - **Next:** once the Firebase Console confirms the quota has actually reset, run Task 5's brief (`.superpowers/sdd/task-5-brief.md`) — restart dev servers, drive the full Dashboard range-toggle + FOH order→payment→confirmation flow via Playwright, confirm zero console errors and that switching tables clears a stale confirmation screen, then update this file and commit.
+`App.jsx`: dark sticky navbar, NavLink active = bold + red underline, VI/EN language toggle pill
 
-- **Task 5 (end-to-end browser verification) complete — the FOH bill clarity + Dashboard revenue range KPI feature is now fully done.** Quota reset confirmed via the Firebase Console's Usage tab (per the Open Decisions note, the reset boundary is midnight Pacific Time, ~14:00 Vietnam local — confirmed accurate this time). Restarted both dev servers and drove a Playwright session through the real app (default UI language is Vietnamese, so the verification script needed Vietnamese button/label text, not the English text in the plan's illustrative script):
-  - **Dashboard revenue range toggle**: confirmed all three ranges (Hôm nay/7 Ngày/Tháng này) render distinct revenue figures pulled live from `/api/profit/summary` — 0₫ (day) → 2.225.000₫ (week, -99% vs typical) → 287.995.000₫ (month, -69% vs typical) — with the active tab visibly highlighted and the vs-typical comparison line color-coded, confirming the historical baseline (precomputed the day before) is being read correctly.
-  - **FOH full lifecycle**: created an order (1× Pad Thái, 95.000₫) → bill panel showed "Hóa đơn — T2" heading with a "Trống" status badge → sent to kitchen → status badge updated to "Đang chế biến" → marked served → badge updated to "Đã phục vụ" (green) → recorded cash payment → confirmation screen rendered "Đã nhận thanh toán", the correct total, and "Cash" with a "Bắt đầu đơn mới" button.
-  - **Table-switch edge case**: confirmed switching to a different table while a confirmation screen was showing did not leak it, and switching back to the original table showed its real updated state (not a stale confirmation).
-  - **Zero console/page errors** throughout the entire session.
-  - Full screenshot set in `/tmp/dashboard-0{1,2,3}-*.png` and `/tmp/foh-0{1,2,3,4,5,5b}-*.png` (not committed — local verification artifacts only).
+`Dashboard.jsx`: removed table grid; KPI cards (revenue range toggle, covers, avg ticket, occupancy); red AI summary card; alerts deduplicated by summary+type, capped at 3
+
+`FrontOfHouse.jsx` → 3 tabs:
+- **Tables**: color-coded grid, elapsed time badge from real `seated_at` (AVG = 60 min), active order status per table, POS order panel
+- **Orders**: kitchen kanban (pending / in-kitchen / completed) from `kitchen_queue` Firestore collection, shows table_id + item name + qty + elapsed time
+- **Reservations**: AI peak forecast banner, add-reservation form, reservation list
+
+`BackOfHouse.jsx` → 3 tabs:
+- **Inventory**: Firestore `inventory` collection + inline +/- stock update (local state), stockout forecast computed client-side
+- **Labor**: staff table with shift times, on/off badge, staffing flag, AI forecast banner
+- **Supply & Revenue**: profit snapshot (computed from Firestore), channel breakdown (static), supplier reliability table
+
+`GuestEngagement.jsx`: loyalty-only (reservations moved to FOH tab); Gold/Silver/Bronze tier pills using brand token variables
+
+`Consultant.jsx`: chili-red user bubbles (rounded 18px), white AI bubbles with 🤖 avatar, red quick-prompt chips, red send button, typing dots animation
+
+`Settings.jsx`: language card + tip note about navbar VI/EN toggle
+
+**Bug fixes**
+
+1. Blank page: `useMemo` dep array referenced `allOrders` (undefined after rename to `rawOrders`) — fixed to `rawOrders`
+2. Revenue/inventory "something went wrong": `VITE_API_BASE_URL=http://localhost:4000` baked into Vercel build caused all `/api/*` calls to hit localhost. Fixed by computing profit and inventory forecast **directly from Firestore** client-side using same math as backend controllers:
+   - `Dashboard`: 30-day `rawOrders` snapshot → filter by range client-side → `rangeRevenue`
+   - `BackOfHouse`: `orders` + `staff_shifts` → profit memo; `inventory` collection → stockout forecast memo
+3. FOH orders not saving: `handleCreateOrder`, `handleSendToKitchen`, `handleMarkServed` all called Express backend (`localhost:4000`). Replaced with direct Firestore writes:
+   - Create order: `runTransaction` → sets `orders/{id}` + updates `tables/{id}` status to `dining`
+   - Send to kitchen: `updateDoc` order + `writeBatch` one `kitchen_queue` doc per line item (includes `table_id`, `item_name_vi/en`, `qty`)
+   - Mark served: `updateDoc` with `served_at: serverTimestamp()`
+   - Record payment: `writeBatch` — order `payment_method` + table status → `cleanup`
+
+**June data scripts**
+
+`backend/src/scripts/resetJuneData.js`: batch-deletes orders/kitchen_queue/insights/reservations, resets T01–T08 to `status: open`, deletes `analytics/historical_baseline`
+
+`backend/src/scripts/generateJuneData.js`: generates 1,560 orders (1,170 dine-in + 390 takeaway) + 210 reservations for June 1–30 2026. Sessions: lunch 11:00–14:00, dinner 18:00–22:00. Channels: `dine_in` + `takeaway` only. 70% occupancy, ±10% daily variance, realistic hour-weighted distribution. Menu: 5 items weighted by popularity. Payments: cash 40% / card 35% / momo 25%.
+
+**Firestore quota hit** during `resetJuneData.js` run (RESOURCE_EXHAUSTED on first collection scan). Scripts are ready; must run after 14:00 Vietnam time when quota resets.

@@ -36,11 +36,28 @@ const inventory = [
   { sku: 'TH-COCO-01', name_en: 'Coconut Milk', name_vi: 'Nước cốt dừa', unit: 'L', current_stock: 6, par_level: 10, avg_daily_consumption: 8, last_restocked_at: hoursAgo(20) },
 ]
 
+// 13 staff total: 2 chef, 2 kitchen_assistant, 6 server, 2 cleaner, 1 manager
+// Each shift has 4–5 people. Shift A = morning (8h), Shift B = evening (8h).
+// Monthly salaries (VND): chef 12M–18M, kitchen_assistant 7M–9M,
+// server 6M–8M, cleaner 5.5M–7M, manager 15M–25M.
 const staff_shifts = [
-  { staff_id: 'S1', name: 'Minh Tran', role: 'chef', shift_start: hoursAgo(4), shift_end: hoursAgo(-4), station: 'wok', tasks_completed: 22 },
-  { staff_id: 'S2', name: 'Lan Pham', role: 'server', shift_start: hoursAgo(3), shift_end: hoursAgo(-5), station: 'floor', tasks_completed: 31 },
-  { staff_id: 'S3', name: 'Huy Nguyen', role: 'server', shift_start: hoursAgo(3), shift_end: hoursAgo(-5), station: 'floor', tasks_completed: 18 },
-  { staff_id: 'S4', name: 'Anh Le', role: 'chef', shift_start: hoursAgo(4), shift_end: hoursAgo(-4), station: 'grill', tasks_completed: 19 },
+  // Shift A — morning (started ~4 h ago, ends in ~4 h) — 5 people
+  { staff_id: 'S1',  name: 'Minh Tran',    role: 'chef',              shift: 'A', shift_start: hoursAgo(4),   shift_end: hoursAgo(-4), station: 'wok',   tasks_completed: 22 },
+  { staff_id: 'S2',  name: 'Anh Le',       role: 'chef',              shift: 'A', shift_start: hoursAgo(4),   shift_end: hoursAgo(-4), station: 'grill', tasks_completed: 19 },
+  { staff_id: 'S3',  name: 'Bao Nguyen',   role: 'kitchen_assistant', shift: 'A', shift_start: hoursAgo(4),   shift_end: hoursAgo(-4), station: 'prep',  tasks_completed: 27 },
+  { staff_id: 'S4',  name: 'Lan Pham',     role: 'server',            shift: 'A', shift_start: hoursAgo(3),   shift_end: hoursAgo(-5), station: 'floor', tasks_completed: 31 },
+  { staff_id: 'S5',  name: 'Huy Nguyen',   role: 'server',            shift: 'A', shift_start: hoursAgo(3),   shift_end: hoursAgo(-5), station: 'floor', tasks_completed: 18 },
+  // Shift B — evening (starts in ~4 h, ends in ~12 h) — 4 people
+  { staff_id: 'S6',  name: 'Tuan Vo',      role: 'chef',              shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'wok',   tasks_completed: 0 },
+  { staff_id: 'S7',  name: 'Dung Hoang',   role: 'kitchen_assistant', shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'prep',  tasks_completed: 0 },
+  { staff_id: 'S8',  name: 'Mai Thi Thu',  role: 'server',            shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'floor', tasks_completed: 0 },
+  { staff_id: 'S9',  name: 'Cuong Dinh',   role: 'server',            shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'floor', tasks_completed: 0 },
+  // Split-shift / all-day staff
+  { staff_id: 'S10', name: 'Nhi Truong',   role: 'server',            shift: 'A', shift_start: hoursAgo(3),   shift_end: hoursAgo(-5), station: 'cashier', tasks_completed: 24 },
+  { staff_id: 'S11', name: 'Phuc Le',      role: 'server',            shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'cashier', tasks_completed: 0 },
+  { staff_id: 'S12', name: 'Hang Nguyen',  role: 'cleaner',           shift: 'A', shift_start: hoursAgo(4),   shift_end: hoursAgo(-4), station: 'hall',  tasks_completed: 8 },
+  { staff_id: 'S13', name: 'Son Pham',     role: 'cleaner',           shift: 'B', shift_start: hoursAgo(-4),  shift_end: hoursAgo(-12), station: 'hall',  tasks_completed: 0 },
+  { staff_id: 'S0',  name: 'Linh Do',      role: 'manager',           shift: 'A', shift_start: hoursAgo(5),   shift_end: hoursAgo(-3), station: 'office', tasks_completed: 12 },
 ]
 
 const menuItems = [

@@ -3,11 +3,19 @@ import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
 // Profit snapshot — rule-based estimate, not real cost accounting.
 // food_cost is assumed as a flat % of revenue (no per-ingredient cost data
-// in the MVP data model); labor_cost is shift hours × an assumed hourly
-// wage. See PangPang_SmartOps_AI_Build_Instructions.md §6 for the
-// "simulated AI / rule-based" framing this mirrors.
+// in the MVP data model); labor_cost is shift hours × role-based hourly wage.
+// Wages derived from monthly salary midpoints ÷ 208 working hours/month:
+//   chef 15M → ~72,000  |  kitchen_assistant 8M → ~38,500
+//   server 7M → ~33,700  |  cleaner 6.25M → ~30,000  |  manager 20M → ~96,200
 const ASSUMED_FOOD_COST_PCT = 0.32
-const ASSUMED_HOURLY_WAGE_VND = 25000
+const HOURLY_WAGE_BY_ROLE = {
+  chef:              72000,
+  kitchen_assistant: 38500,
+  server:            33700,
+  cleaner:           30000,
+  manager:           96200,
+}
+const DEFAULT_HOURLY_WAGE = 35000
 
 const RANGE_DAYS = { day: 1, week: 7, month: 30 }
 
@@ -45,7 +53,8 @@ export async function getProfitSummary(req, res) {
     const start = shift.shift_start?.toDate ? shift.shift_start.toDate() : new Date(shift.shift_start)
     const end = shift.shift_end?.toDate ? shift.shift_end.toDate() : new Date(shift.shift_end)
     const hours = Math.max(0, (end - start) / (1000 * 60 * 60))
-    return sum + hours * ASSUMED_HOURLY_WAGE_VND
+    const wage = HOURLY_WAGE_BY_ROLE[shift.role] ?? DEFAULT_HOURLY_WAGE
+    return sum + hours * wage
   }, 0)
 
   const food_cost = Math.round(revenue * ASSUMED_FOOD_COST_PCT)

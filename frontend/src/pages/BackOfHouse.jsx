@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
 
 function formatVnd(amount, lang) {
@@ -71,7 +71,7 @@ export default function BackOfHouse() {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
-      setInventoryRaw(snap.docs.map((d) => d.data()))
+      setInventoryRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => { unsubShifts(); unsubOrders(); unsubInv() }
   }, [])
@@ -110,6 +110,16 @@ export default function BackOfHouse() {
   function updateStock(sku, newVal) {
     const val = Math.max(0, Math.round(newVal * 10) / 10)
     setLocalStock((prev) => ({ ...prev, [sku]: val }))
+  }
+
+  async function saveStock(item) {
+    const newVal = getStock(item)
+    try {
+      await updateDoc(doc(db, 'inventory', item.id), { current_stock: newVal })
+      setLocalStock((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const now = new Date()
@@ -184,6 +194,14 @@ export default function BackOfHouse() {
                               style={{ width: '60px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
                             />
                             <button onClick={() => updateStock(item.sku, stock + 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>+</button>
+                            {localStock[item.sku] !== undefined && (
+                              <button
+                                onClick={() => saveStock(item)}
+                                style={{ padding: '2px 10px', borderRadius: '4px', border: 'none', background: 'var(--pp-primary)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                {i18n.language === 'vi' ? 'Lưu' : 'Save'}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

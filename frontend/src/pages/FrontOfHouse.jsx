@@ -67,6 +67,7 @@ export default function FrontOfHouse() {
   const [editingNoteId, setEditingNoteId] = useState(null)
   const [noteInput, setNoteInput] = useState('')
   const [addingMore, setAddingMore] = useState(false)
+  const [inventory, setInventory] = useState(null)
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -85,7 +86,10 @@ export default function FrontOfHouse() {
       list.sort((a, b) => (toDate(a.reservation_time)?.getTime() ?? 0) - (toDate(b.reservation_time)?.getTime() ?? 0))
       setReservations(list)
     })
-    return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes() }
+    const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
+      setInventory(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    })
+    return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes(); unsubInv() }
   }, [])
 
   // Find the active (unpaid or in-progress) order for the selected table
@@ -129,6 +133,22 @@ export default function FrontOfHouse() {
     return () => clearInterval(interval)
   }, [reservations, tables])
 
+  // Build a map of ingredient_sku → { id, current_stock } for fast lookup
+  const invMap = useMemo(() => {
+    const map = {}
+    for (const inv of (inventory || [])) map[inv.sku] = inv
+    return map
+  }, [inventory])
+
+  // Set of menu item SKUs that cannot be ordered due to insufficient stock
+  const unavailableSkus = useMemo(() => {
+    return new Set(
+      MENU_ITEMS.filter((m) =>
+        (m.recipes || []).some((r) => (invMap[r.ingredient_sku]?.current_stock ?? 0) < r.qty)
+      ).map((m) => m.sku)
+    )
+  }, [invMap])
+
   if (tables === null || orders === null) {
     return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
   }
@@ -138,6 +158,25 @@ export default function FrontOfHouse() {
     const item = MENU_ITEMS.find((m) => m.sku === sku)
     return sum + (item?.unit_price ?? 0) * qty
   }, 0)
+
+  // Aggregate ingredient deductions for a list of order items and write them to the batch
+  function addInventoryDeductions(batch, orderItems) {
+    const deductions = {}
+    for (const item of orderItems) {
+      const menuItem = MENU_ITEMS.find((m) => m.sku === item.sku)
+      for (const recipe of (menuItem?.recipes || [])) {
+        deductions[recipe.ingredient_sku] = (deductions[recipe.ingredient_sku] || 0) + recipe.qty * item.qty
+      }
+    }
+    for (const [ingredientSku, amount] of Object.entries(deductions)) {
+      const inv = invMap[ingredientSku]
+      if (inv?.id) {
+        batch.update(doc(db, 'inventory', inv.id), {
+          current_stock: Math.max(0, (inv.current_stock ?? 0) - amount),
+        })
+      }
+    }
+  }
 
   // ── Create order: write directly to Firestore (mirrors ordersController.createOrder) ──
   async function handleCreateOrder() {
@@ -209,6 +248,7 @@ export default function FrontOfHouse() {
             prep_time_target_min: 15,
           })
         }
+        addInventoryDeductions(batch, order.items)
         await batch.commit()
       }
     } catch (e) {
@@ -264,6 +304,7 @@ export default function FrontOfHouse() {
           prep_time_target_min: 15,
         })
       }
+      addInventoryDeductions(batch, newItems)
       await batch.commit()
 
       setCart({})
@@ -620,19 +661,24 @@ export default function FrontOfHouse() {
                       <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
                         {i18n.language === 'vi' ? 'Chọn món để tạo đơn hàng mới' : 'Select items to create a new order'}
                       </p>
-                      {MENU_ITEMS.map((item) => (
-                        <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
-                          <div>
-                            <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
-                            <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
+                      {MENU_ITEMS.map((item) => {
+                        const outOfStock = unavailableSkus.has(item.sku)
+                        return (
+                          <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)', opacity: outOfStock ? 0.5 : 1 }}>
+                            <div>
+                              <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                              <p style={{ fontSize: '12px', color: outOfStock ? 'var(--pp-danger-text)' : 'var(--pp-text-muted)', margin: 0 }}>
+                                {outOfStock ? (i18n.language === 'vi' ? 'Hết nguyên liệu' : 'Out of stock') : formatVnd(item.unit_price, i18n.language)}
+                              </p>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button disabled={outOfStock} onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: outOfStock ? 'not-allowed' : 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
+                              <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
+                              <button disabled={outOfStock} onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: outOfStock ? 'not-allowed' : 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
-                            <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
-                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
                         <span style={{ fontWeight: 700, fontSize: '16px' }}>{formatVnd(cartTotal, i18n.language)}</span>
                         <button
@@ -723,19 +769,24 @@ export default function FrontOfHouse() {
                           <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
                             {i18n.language === 'vi' ? 'Thêm món vào đơn hiện tại' : 'Add items to current order'}
                           </p>
-                          {MENU_ITEMS.map((item) => (
-                            <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
-                              <div>
-                                <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
-                                <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
+                          {MENU_ITEMS.map((item) => {
+                            const outOfStock = unavailableSkus.has(item.sku)
+                            return (
+                              <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)', opacity: outOfStock ? 0.5 : 1 }}>
+                                <div>
+                                  <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                                  <p style={{ fontSize: '12px', color: outOfStock ? 'var(--pp-danger-text)' : 'var(--pp-text-muted)', margin: 0 }}>
+                                    {outOfStock ? (i18n.language === 'vi' ? 'Hết nguyên liệu' : 'Out of stock') : formatVnd(item.unit_price, i18n.language)}
+                                  </p>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <button disabled={outOfStock} onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: outOfStock ? 'not-allowed' : 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
+                                  <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
+                                  <button disabled={outOfStock} onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: outOfStock ? 'not-allowed' : 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
-                                <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
-                                <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
-                              </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                           <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                             <button
                               onClick={() => { setAddingMore(false); setCart({}) }}

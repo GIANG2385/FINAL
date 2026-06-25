@@ -9,6 +9,8 @@ import runAnalysisRouter from './routes/runAnalysis.js'
 import consultantRouter from './routes/consultant.js'
 import vnpayRouter from './routes/vnpay.js'
 import { runAnalysisInternal } from './controllers/insightsController.js'
+import { requireAuth } from './middleware/requireAuth.js'
+import { supabase } from './supabaseClient.js'
 
 const app = express()
 app.use(cors())
@@ -16,6 +18,12 @@ app.use(express.json())
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
+})
+
+app.get('/api/me', requireAuth, async (req, res) => {
+  const { data } = await supabase.from('users').select('uid, email, role').eq('uid', req.user.uid).single()
+  if (!data) return res.status(404).json({ error: 'User not found' })
+  res.json(data)
 })
 
 app.use('/api/orders', ordersRouter)

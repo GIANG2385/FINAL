@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
-import supabase from '../services/supabase'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
 const AuthContext = createContext(null)
 
@@ -14,8 +15,15 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       if (firebaseUser) {
-        const { data } = await supabase.from('users').select('*').eq('uid', firebaseUser.uid).single()
-        setProfile(data ?? null)
+        try {
+          const token = await firebaseUser.getIdToken()
+          const res = await fetch(`${API_BASE_URL}/api/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          setProfile(res.ok ? await res.json() : null)
+        } catch {
+          setProfile(null)
+        }
       } else {
         setProfile(null)
       }

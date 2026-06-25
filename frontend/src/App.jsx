@@ -58,7 +58,9 @@ export default function App() {
           {t('app.name')}
         </span>
 
-        <NavLink to="/" end style={navLinkStyle}>{t('nav.dashboard')}</NavLink>
+        {role && ['manager', 'admin'].includes(role) && (
+          <NavLink to="/" end style={navLinkStyle}>{t('nav.dashboard')}</NavLink>
+        )}
         <NavLink to="/foh" style={navLinkStyle}>{t('nav.frontOfHouse')}</NavLink>
         <NavLink to="/boh" style={navLinkStyle}>{t('nav.backOfHouse')}</NavLink>
         <NavLink to="/guests" style={navLinkStyle}>{t('nav.guestEngagement')}</NavLink>
@@ -102,13 +104,13 @@ export default function App() {
 
       <main style={{ background: 'var(--pp-page-bg)', minHeight: 'calc(100vh - 52px)' }}>
         <Routes>
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/" element={<ProtectedRoute allowedRoles={['manager', 'admin']}><Dashboard /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
           <Route path="/foh" element={<ProtectedRoute><FrontOfHouse /></ProtectedRoute>} />
           <Route path="/boh" element={<ProtectedRoute><BackOfHouse /></ProtectedRoute>} />
           <Route path="/guests" element={<ProtectedRoute><GuestEngagement /></ProtectedRoute>} />
           <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
-          <Route path="/consultant" element={<ProtectedRoute><Consultant /></ProtectedRoute>} />
+          <Route path="/consultant" element={<ProtectedRoute allowedRoles={['manager', 'admin']}><Consultant /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/vnpay-return" element={<VnpayReturn />} />
         </Routes>

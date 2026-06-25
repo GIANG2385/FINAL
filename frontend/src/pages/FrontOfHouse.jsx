@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useTranslation } from 'react-i18next'
 import {
-  addDoc, collection, doc, getDoc, onSnapshot, query,
+  addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, query,
   runTransaction, serverTimestamp, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
@@ -397,6 +397,14 @@ export default function FrontOfHouse() {
       await updateDoc(doc(db, 'reservations', reservationId), { note: noteInput.trim() || null })
       setEditingNoteId(null)
       setNoteInput('')
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function handleDeleteReservation(reservationId) {
+    try {
+      await deleteDoc(doc(db, 'reservations', reservationId))
     } catch (e) {
       console.error(e)
     }
@@ -909,8 +917,9 @@ export default function FrontOfHouse() {
                       t('foh.assignTable'),
                       i18n.language === 'vi' ? 'Ghi chú' : 'Note',
                       t('guest.status'),
-                    ].map((h) => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                      '',
+                    ].map((h, i) => (
+                      <th key={i} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -979,6 +988,18 @@ export default function FrontOfHouse() {
                         }}>
                           {t(`guest.statusLabel.${r.status}`)}
                         </span>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(i18n.language === 'vi' ? `Xoá đặt bàn của ${r.guest_name}?` : `Delete reservation for ${r.guest_name}?`)) {
+                              handleDeleteReservation(r.id)
+                            }
+                          }}
+                          style={{ background: 'transparent', border: '1px solid var(--pp-danger-text)', color: 'var(--pp-danger-text)', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          {i18n.language === 'vi' ? 'Xoá' : 'Delete'}
+                        </button>
                       </td>
                     </tr>
                   ))}

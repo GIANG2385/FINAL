@@ -318,6 +318,7 @@ export default function FrontOfHouse() {
             order_id: orderId,
             table_id: selectedTable,
             item_sku: item.sku,
+            item_name: item.name_en,
             item_name_vi: item.name_vi,
             item_name_en: item.name_en,
             qty: item.qty,
@@ -411,6 +412,7 @@ export default function FrontOfHouse() {
             order_id: orderId,
             table_id: order.table_id,
             item_sku: item.sku,
+            item_name: item.name_en,
             item_name_vi: item.name_vi,
             item_name_en: item.name_en,
             qty: item.qty,
@@ -933,7 +935,7 @@ export default function FrontOfHouse() {
                         <div key={q.queue_id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                             <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
-                              {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_sku) : (q.item_name_en || q.item_sku)}
+                              {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_name || q.item_sku) : (q.item_name_en || q.item_name || q.item_sku)}
                             </p>
                             {q.table_id && (
                               <span style={{ fontSize: '11px', background: 'var(--pp-neutral-bg)', color: 'var(--pp-neutral-text)', borderRadius: '4px', padding: '1px 5px', marginLeft: '6px', whiteSpace: 'nowrap' }}>

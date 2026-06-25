@@ -197,6 +197,31 @@ export default function FrontOfHouse() {
     } finally { setBusy(false) }
   }
 
+  // Advance a kitchen_queue item: pending→in_progress or in_progress→ready.
+  // When all items for an order reach 'ready', auto-promote the order to 'ready'.
+  async function handleAdvanceQueueItem(queueItem) {
+    const nextStatus = queueItem.status === 'pending' ? 'in_progress' : 'ready'
+    try {
+      await updateDoc(doc(db, 'kitchen_queue', queueItem.id), { status: nextStatus })
+
+      if (nextStatus === 'ready') {
+        // Check if all sibling items are now ready
+        const siblings = (kitchenQueue || []).filter(
+          (q) => q.order_id === queueItem.order_id
+        )
+        const allReady = siblings.every(
+          (q) => q.id === queueItem.id ? true : q.status === 'ready'
+        )
+        if (allReady) {
+          await updateDoc(doc(db, 'orders', queueItem.order_id), { status: 'ready' })
+        }
+      }
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    }
+  }
+
   // ── Record payment: write payment_method + set table to cleanup ──
   async function handleRecordPayment(orderId, method, total) {
     setBusy(true); setError(null)
@@ -329,9 +354,11 @@ export default function FrontOfHouse() {
                   <span style={{
                     borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500,
                     background: activeOrder.status === 'served' ? 'var(--pp-success-bg)'
+                      : activeOrder.status === 'ready'     ? 'var(--pp-success-bg)'
                       : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-bg)'
                       : 'var(--pp-neutral-bg)',
                     color: activeOrder.status === 'served' ? 'var(--pp-success-text)'
+                      : activeOrder.status === 'ready'     ? 'var(--pp-success-text)'
                       : activeOrder.status === 'in_kitchen' ? 'var(--pp-warning-text)'
                       : 'var(--pp-neutral-text)',
                   }}>
@@ -427,6 +454,30 @@ export default function FrontOfHouse() {
                     </div>
                   )}
 
+                  {activeOrder.status === 'ready' && (
+                    <div>
+                      <p style={{
+                        fontSize: '13px', color: 'var(--pp-success-text)',
+                        background: 'var(--pp-success-bg)', borderRadius: '6px',
+                        padding: '8px 12px', marginBottom: '10px',
+                      }}>
+                        ✅ {t('foh.orderReady')}
+                      </p>
+                      <button
+                        disabled={busy}
+                        onClick={() => handleMarkServed(activeOrder.id)}
+                        style={{
+                          width: '100%', background: 'var(--pp-primary)', color: 'white',
+                          border: 'none', borderRadius: '99px', padding: '10px',
+                          fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                          opacity: busy ? 0.5 : 1,
+                        }}
+                      >
+                        {busy ? '…' : t('foh.markServed')}
+                      </button>
+                    </div>
+                  )}
+
                   {activeOrder.status === 'served' && !activeOrder.payment_method && (
                     <div>
                       <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>{t('foh.recordPayment')}</p>
@@ -485,6 +536,19 @@ export default function FrontOfHouse() {
                             )}
                           </div>
                           <p style={{ fontSize: '12px', fontWeight: 500, color: delayColor, margin: 0 }}>⏱ {elapsed} {i18n.language === 'vi' ? 'phút' : 'min'}</p>
+                          {(q.status === 'pending' || q.status === 'in_progress') && (
+                            <button
+                              onClick={() => handleAdvanceQueueItem(q)}
+                              style={{
+                                marginTop: '8px', width: '100%', fontSize: '12px', fontWeight: 600,
+                                padding: '5px 0', borderRadius: '6px', cursor: 'pointer', border: 'none',
+                                background: q.status === 'pending' ? 'var(--pp-warning-bg)' : 'var(--pp-success-bg)',
+                                color: q.status === 'pending' ? 'var(--pp-warning-text)' : 'var(--pp-success-text)',
+                              }}
+                            >
+                              {q.status === 'pending' ? t('boh.kanban.startCooking') : t('boh.kanban.markReady')}
+                            </button>
+                          )}
                         </div>
                       )
                     })}

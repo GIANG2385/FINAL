@@ -9,6 +9,7 @@ import Insights from './pages/Insights'
 import GuestEngagement from './pages/GuestEngagement'
 import Consultant from './pages/Consultant'
 import ProtectedRoute from './components/ProtectedRoute'
+import VnpayReturn from './pages/VnpayReturn'
 import { useAuth } from './context/AuthContext'
 
 const navLinkStyle = ({ isActive }) => ({
@@ -109,6 +110,7 @@ export default function App() {
           <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
           <Route path="/consultant" element={<ProtectedRoute><Consultant /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/vnpay-return" element={<VnpayReturn />} />
         </Routes>
       </main>
     </div>

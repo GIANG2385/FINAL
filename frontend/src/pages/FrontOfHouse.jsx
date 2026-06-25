@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { useTranslation } from 'react-i18next'
 import {
   addDoc, collection, doc, getDoc, onSnapshot, query,
@@ -58,6 +59,7 @@ export default function FrontOfHouse() {
   const [error, setError] = useState(null)
   const [paymentConfirmation, setPaymentConfirmation] = useState(null)
   const [spikeAlert, setSpikeAlert] = useState(false)
+  const [vnpayModal, setVnpayModal] = useState(null) // { orderId, amount, paymentUrl }
   // Reservation form
   const [form, setForm] = useState({ name: '', partySize: 2, time: '18:00' })
   const [formOpen, setFormOpen] = useState(false)
@@ -249,8 +251,20 @@ export default function FrontOfHouse() {
   }
 
   async function handleInitVnpay(orderId, amount) {
-    // implemented in Task 10
-    console.log('VNPay stub', orderId, amount)
+    setBusy(true); setError(null)
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/vnpay/create-payment-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, amount }),
+      })
+      const data = await res.json()
+      if (!data.paymentUrl) throw new Error('No payment URL returned')
+      setVnpayModal({ orderId, amount, paymentUrl: data.paymentUrl })
+    } catch (e) {
+      console.error(e)
+      setError(i18n.language === 'vi' ? 'Không thể tạo mã QR thanh toán' : 'Could not generate payment QR')
+    } finally { setBusy(false) }
   }
 
   // ── Mark served ──
@@ -904,6 +918,47 @@ export default function FrontOfHouse() {
               </table>
             </div>
           )}
+        </div>
+      )}
+      {vnpayModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '16px', padding: '32px 28px',
+            textAlign: 'center', maxWidth: '340px', width: '90%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>VNPay</h2>
+            <p style={{ fontSize: '13px', color: 'var(--pp-text-muted)', marginBottom: '20px' }}>
+              {t('foh.vnpayQR')}
+            </p>
+            <div style={{ display: 'inline-block', padding: '12px', background: 'white', border: '2px solid var(--pp-border)', borderRadius: '12px', marginBottom: '16px' }}>
+              <QRCodeSVG value={vnpayModal.paymentUrl} size={200} />
+            </div>
+            <p style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px' }}>
+              {formatVnd(vnpayModal.amount, i18n.language)}
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => { setVnpayModal(null); setError(null) }}
+                style={{ flex: 1, border: '1px solid var(--pp-border)', background: 'transparent', borderRadius: '99px', padding: '10px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  await handleRecordPayment(vnpayModal.orderId, 'vnpay', vnpayModal.amount)
+                  setVnpayModal(null)
+                }}
+                style={{ flex: 1, background: '#0066CC', color: 'white', border: 'none', borderRadius: '99px', padding: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+              >
+                {busy ? '…' : t('foh.confirmPayment')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

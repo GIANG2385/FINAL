@@ -126,6 +126,42 @@ async function buildDataSnapshot() {
   const avgVisitsPerMonth =
     totalMembers > 0 ? Math.round(repeatGuests.reduce((s, v) => s + v, 0) / totalMembers) : 0
 
+  // ── Timing metrics ───────────────────────────────────────────────────────
+  // Avg dining time: order created_at → served_at (served orders today)
+  const servedToday = todayOrders.filter((o) => o.created_at && o.served_at)
+  const avgDiningMin = servedToday.length > 0
+    ? Math.round(servedToday.reduce((s, o) => {
+        return s + (new Date(o.served_at) - new Date(o.created_at)) / 60000
+      }, 0) / servedToday.length)
+    : null
+
+  // Kitchen timing: queued_at → completed_at for completed queue items
+  const { data: completedQueue = [] } = await supabase
+    .from('kitchen_queue')
+    .select('queued_at, started_at, completed_at, prep_time_target_min')
+    .eq('status', 'ready')
+    .gte('completed_at', today.toISOString())
+  const cookTimes = completedQueue
+    .filter((q) => q.queued_at && q.completed_at)
+    .map((q) => (new Date(q.completed_at) - new Date(q.queued_at)) / 60000)
+  const avgCookMin = cookTimes.length > 0
+    ? Math.round(cookTimes.reduce((s, v) => s + v, 0) / cookTimes.length)
+    : null
+  const avgTargetMin = completedQueue.length > 0
+    ? Math.round(completedQueue.reduce((s, q) => s + (q.prep_time_target_min || 15), 0) / completedQueue.length)
+    : 15
+  const cookingVsTarget = avgCookMin !== null ? avgCookMin - avgTargetMin : null
+
+  // Wait time: items currently in queue (queued_at → now)
+  const activeQueueItems = queueRows.filter((q) => q.status !== 'ready' && q.queued_at)
+  const currentWaitTimes = activeQueueItems.map((q) => (now - new Date(q.queued_at)) / 60000)
+  const avgCurrentWaitMin = currentWaitTimes.length > 0
+    ? Math.round(currentWaitTimes.reduce((s, v) => s + v, 0) / currentWaitTimes.length)
+    : null
+  const longestWaitMin = currentWaitTimes.length > 0
+    ? Math.round(Math.max(...currentWaitTimes))
+    : null
+
   // ── Insights ──────────────────────────────────────────────────────────────
   const { data: insightRows = [] } = await supabase.from('insights').select('status, summary_en')
   const activeInsights = insightRows
@@ -155,6 +191,13 @@ async function buildDataSnapshot() {
       pending: pendingCount,
       inKitchen: inKitchenItems.length,
       delayed: delayedCount,
+    },
+    timing: {
+      avgDiningMin,
+      avgCookMin,
+      cookingVsTargetMin: cookingVsTarget,
+      avgCurrentWaitMin,
+      longestCurrentWaitMin: longestWaitMin,
     },
     staff: {
       onShiftNow: onShiftNow.length,
@@ -190,7 +233,15 @@ async function buildDataSnapshot() {
         .join(', ')
     }.`,
     '',
-    `KITCHEN QUEUE: ${pendingCount} pending, ${inKitchenItems.length} in kitchen, ${delayedCount} delayed (>20 min).`,
+    `KITCHEN QUEUE: ${pendingCount} pending, ${inKitchenItems.length} in kitchen, ${delayedCount} delayed (>20 min).${
+      avgCurrentWaitMin !== null ? ` Avg current wait: ${avgCurrentWaitMin} min. Longest: ${longestWaitMin} min.` : ''
+    }`,
+    avgCookMin !== null
+      ? `COOK TIME (today): avg ${avgCookMin} min vs target ${avgTargetMin} min (${cookingVsTarget >= 0 ? '+' : ''}${cookingVsTarget} min ${cookingVsTarget > 0 ? 'over' : 'under'} target).`
+      : 'COOK TIME: No completed kitchen items today yet.',
+    avgDiningMin !== null
+      ? `DINING TIME: avg ${avgDiningMin} min from order placed to served (${servedToday.length} orders today).`
+      : 'DINING TIME: No served orders today yet.',
     '',
     `STAFF: ${onShiftNow.length} on shift now out of ${shiftsRows.length} scheduled today.`,
     '',
@@ -280,7 +331,17 @@ export async function sendMessage(req, res) {
     reply = await getChatCompletion([
       {
         role: 'system',
-        content: `You are an AI Operations Consultant for Pang Pang Restaurant, a Thai casual dining restaurant. Help the owner understand what is happening in their business and why. Answer only in English. Be concise and specific, referencing the data below when relevant.\n\n${snapshot}`,
+        content: `You are an AI Operations Consultant for Pang Pang Restaurant, a Thai casual dining restaurant in Hanoi. Your role is to help the owner and managers understand what is happening in real time, why it is happening, and what to do about it.
+
+Guidelines:
+- Answer in English only. Be concise, specific, and action-oriented.
+- Always reference actual numbers from the live data snapshot below.
+- When diagnosing problems, use timing data (dining time, cook time, wait time) as evidence.
+- Flag critical inventory items, kitchen delays, and revenue anomalies proactively.
+- For staffing and operations questions, relate the answer to the current shift and queue data.
+- Loyalty and guest insights should reference visit frequency and tier data.
+
+${snapshot}`,
       },
       ...history,
     ])

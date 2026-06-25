@@ -60,7 +60,6 @@ export default function GuestEngagement() {
     loyaltyMap.set(r.guest_name, entry)
   }
   const topGuests = Array.from(loyaltyMap.values())
-    .filter((g) => g.visits >= 2)
     .sort((a, b) => b.visits - a.visits)
 
   return (

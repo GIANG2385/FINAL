@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from '../services/firebase'
+import { auth } from '../services/firebase'
+import supabase from '../services/supabase'
 
 const AuthContext = createContext(null)
 
@@ -14,8 +14,8 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       if (firebaseUser) {
-        const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
-        setProfile(snap.exists() ? snap.data() : null)
+        const { data } = await supabase.from('users').select('*').eq('uid', firebaseUser.uid).single()
+        setProfile(data ?? null)
       } else {
         setProfile(null)
       }

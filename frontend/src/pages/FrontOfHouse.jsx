@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useTranslation } from 'react-i18next'
-import {
-  addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, query,
-  runTransaction, serverTimestamp, updateDoc, where, writeBatch,
-} from 'firebase/firestore'
-import { db } from '../services/firebase'
+import supabase from '../services/supabase'
 import { MENU_ITEMS } from '../data/menu'
 
 function formatVnd(amount, lang) {
@@ -71,30 +67,108 @@ export default function FrontOfHouse() {
   const [firestoreMenu, setFirestoreMenu] = useState(null)
 
   useEffect(() => {
-    const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
-      setTables(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
+    // ── Initial fetches ──
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
-    const todayOrders = query(collection(db, 'orders'), where('created_at', '>=', dayStart))
-    const unsubOrders = onSnapshot(todayOrders, (snap) => {
-      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const dayEnd = new Date(); dayEnd.setHours(23, 59, 59, 999)
+    const startOfToday = dayStart.toISOString()
+    const endOfToday = dayEnd.toISOString()
+
+    supabase.from('tables').select('*').then(({ data }) => {
+      if (data) setTables(data)
     })
-    const unsubQueue = onSnapshot(collection(db, 'kitchen_queue'), (snap) => {
-      setKitchenQueue(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    supabase.from('orders').select('*')
+      .gte('created_at', startOfToday)
+      .lt('created_at', endOfToday)
+      .then(({ data }) => {
+        if (data) setOrders(data)
+      })
+    supabase.from('kitchen_queue').select('*').then(({ data }) => {
+      if (data) setKitchenQueue(data)
     })
-    const unsubRes = onSnapshot(collection(db, 'reservations'), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (toDate(a.reservation_time)?.getTime() ?? 0) - (toDate(b.reservation_time)?.getTime() ?? 0))
-      setReservations(list)
+    supabase.from('reservations').select('*').then(({ data }) => {
+      if (data) {
+        const list = [...data]
+        list.sort((a, b) => (toDate(a.reservation_time)?.getTime() ?? 0) - (toDate(b.reservation_time)?.getTime() ?? 0))
+        setReservations(list)
+      }
     })
-    const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
-      setInventory(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    supabase.from('inventory').select('*').then(({ data }) => {
+      if (data) setInventory(data)
     })
-    const unsubMenu = onSnapshot(collection(db, 'menu_items'), (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      setFirestoreMenu(items.length > 0 ? items : null)
+    supabase.from('menu_items').select('*').then(({ data }) => {
+      if (data) setFirestoreMenu(data.length > 0 ? data : null)
     })
-    return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes(); unsubInv(); unsubMenu() }
+
+    // ── Real-time subscriptions ──
+    const tablesSub = supabase
+      .channel('foh-tables')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
+        supabase.from('tables').select('*').then(({ data }) => {
+          if (data) setTables(data)
+        })
+      })
+      .subscribe()
+
+    const ordersSub = supabase
+      .channel('foh-orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        supabase.from('orders').select('*')
+          .gte('created_at', startOfToday)
+          .lt('created_at', endOfToday)
+          .then(({ data }) => {
+            if (data) setOrders(data)
+          })
+      })
+      .subscribe()
+
+    const queueSub = supabase
+      .channel('foh-kitchen-queue')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kitchen_queue' }, () => {
+        supabase.from('kitchen_queue').select('*').then(({ data }) => {
+          if (data) setKitchenQueue(data)
+        })
+      })
+      .subscribe()
+
+    const resSub = supabase
+      .channel('foh-reservations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+        supabase.from('reservations').select('*').then(({ data }) => {
+          if (data) {
+            const list = [...data]
+            list.sort((a, b) => (toDate(a.reservation_time)?.getTime() ?? 0) - (toDate(b.reservation_time)?.getTime() ?? 0))
+            setReservations(list)
+          }
+        })
+      })
+      .subscribe()
+
+    const invSub = supabase
+      .channel('foh-inventory')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
+        supabase.from('inventory').select('*').then(({ data }) => {
+          if (data) setInventory(data)
+        })
+      })
+      .subscribe()
+
+    const menuSub = supabase
+      .channel('foh-menu-items')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, () => {
+        supabase.from('menu_items').select('*').then(({ data }) => {
+          if (data) setFirestoreMenu(data.length > 0 ? data : null)
+        })
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(tablesSub)
+      supabase.removeChannel(ordersSub)
+      supabase.removeChannel(queueSub)
+      supabase.removeChannel(resSub)
+      supabase.removeChannel(invSub)
+      supabase.removeChannel(menuSub)
+    }
   }, [])
 
   // Find the active (unpaid or in-progress) order for the selected table
@@ -126,9 +200,9 @@ export default function FrontOfHouse() {
         if (!table) return
 
         if (inWindow && table.status === 'open') {
-          updateDoc(doc(db, 'tables', r.table_id), { status: 'reserved' }).catch(console.error)
+          supabase.from('tables').update({ status: 'reserved' }).eq('table_id', r.table_id).then(() => {}).catch(console.error)
         } else if (!inWindow && now > resTime + TEN_MIN && table.status === 'reserved') {
-          updateDoc(doc(db, 'tables', r.table_id), { status: 'open' }).catch(console.error)
+          supabase.from('tables').update({ status: 'open' }).eq('table_id', r.table_id).then(() => {}).catch(console.error)
         }
       })
     }
@@ -138,14 +212,14 @@ export default function FrontOfHouse() {
     return () => clearInterval(interval)
   }, [reservations, tables])
 
-  // Build a map of ingredient_sku → { id, current_stock } for fast lookup
+  // Build a map of ingredient_sku → { sku, current_stock } for fast lookup
   const invMap = useMemo(() => {
     const map = {}
     for (const inv of (inventory || [])) map[inv.sku] = inv
     return map
   }, [inventory])
 
-  // Use Firestore menu items when available, fall back to hardcoded for loading state
+  // Use Supabase menu items when available, fall back to hardcoded for loading state
   const activeMenu = firestoreMenu || MENU_ITEMS
 
   // Set of menu item SKUs that cannot be ordered due to insufficient stock
@@ -167,8 +241,8 @@ export default function FrontOfHouse() {
     return sum + (item?.unit_price ?? 0) * qty
   }, 0)
 
-  // Aggregate ingredient deductions for a list of order items and write them to the batch
-  function addInventoryDeductions(batch, orderItems) {
+  // Aggregate ingredient deductions for a list of order items and apply them
+  async function applyInventoryDeductions(orderItems) {
     const deductions = {}
     for (const item of orderItems) {
       const menuItem = activeMenu.find((m) => m.sku === item.sku)
@@ -176,17 +250,20 @@ export default function FrontOfHouse() {
         deductions[recipe.ingredient_sku] = (deductions[recipe.ingredient_sku] || 0) + recipe.qty * item.qty
       }
     }
-    for (const [ingredientSku, amount] of Object.entries(deductions)) {
-      const inv = invMap[ingredientSku]
-      if (inv?.id) {
-        batch.update(doc(db, 'inventory', inv.id), {
-          current_stock: Math.max(0, (inv.current_stock ?? 0) - amount),
-        })
-      }
-    }
+    await Promise.all(
+      Object.entries(deductions).map(([ingredientSku, amount]) => {
+        const inv = invMap[ingredientSku]
+        if (inv?.sku) {
+          return supabase.from('inventory').update({
+            current_stock: Math.max(0, (inv.current_stock ?? 0) - amount),
+          }).eq('sku', inv.sku)
+        }
+        return Promise.resolve()
+      })
+    )
   }
 
-  // ── Create order: write directly to Firestore (mirrors ordersController.createOrder) ──
+  // ── Create order: write directly to Supabase ──
   async function handleCreateOrder() {
     if (cartItems.length === 0) return
     setBusy(true); setError(null)
@@ -196,22 +273,21 @@ export default function FrontOfHouse() {
         return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
       })
       const total_amount = resolvedItems.reduce((s, i) => s + i.unit_price * i.qty, 0)
-      const orderRef = doc(collection(db, 'orders'))
-      const tableRef = doc(db, 'tables', selectedTable)
+      const newId = crypto.randomUUID()
 
-      await runTransaction(db, async (tx) => {
-        tx.set(orderRef, {
-          table_id: selectedTable,
-          channel: 'dine_in',
-          items: resolvedItems,
-          status: 'open',
-          total_amount,
-          created_at: serverTimestamp(),
-          served_at: null,
-          payment_method: null,
-        })
-        tx.update(tableRef, { status: 'dining', seated_at: serverTimestamp() })
-      })
+      const { data: newOrder } = await supabase.from('orders').insert({
+        id: newId,
+        table_id: selectedTable,
+        channel: 'dine_in',
+        items: resolvedItems,
+        status: 'open',
+        total_amount,
+        created_at: new Date().toISOString(),
+        served_at: null,
+        payment_method: null,
+      }).select().single()
+
+      await supabase.from('tables').update({ status: 'dining', seated_at: new Date().toISOString() }).eq('table_id', selectedTable)
 
       setCart({})
 
@@ -232,16 +308,13 @@ export default function FrontOfHouse() {
   async function handleSendToKitchen(orderId) {
     setBusy(true); setError(null)
     try {
-      const orderRef = doc(db, 'orders', orderId)
-      await updateDoc(orderRef, { status: 'in_kitchen' })
+      await supabase.from('orders').update({ status: 'in_kitchen' }).eq('id', orderId)
 
       // Create a kitchen_queue item per line-item
       const order = orders.find((o) => o.id === orderId)
       if (order?.items?.length) {
-        const batch = writeBatch(db)
-        for (const item of order.items) {
-          const qRef = doc(collection(db, 'kitchen_queue'))
-          batch.set(qRef, {
+        await supabase.from('kitchen_queue').insert(
+          order.items.map((item) => ({
             order_id: orderId,
             table_id: selectedTable,
             item_sku: item.sku,
@@ -250,14 +323,13 @@ export default function FrontOfHouse() {
             qty: item.qty,
             station: 'kitchen',
             status: 'pending',
-            queued_at: serverTimestamp(),
+            queued_at: new Date().toISOString(),
             started_at: null,
             completed_at: null,
             prep_time_target_min: 15,
-          })
-        }
-        addInventoryDeductions(batch, order.items)
-        await batch.commit()
+          }))
+        )
+        await applyInventoryDeductions(order.items)
       }
     } catch (e) {
       console.error(e)
@@ -269,9 +341,8 @@ export default function FrontOfHouse() {
     if (cartItems.length === 0) return
     setBusy(true); setError(null)
     try {
-      const orderRef = doc(db, 'orders', orderId)
-      const snap = await getDoc(orderRef)
-      const existingItems = snap.data()?.items || []
+      const { data: existingOrderData } = await supabase.from('orders').select('items').eq('id', orderId).single()
+      const existingItems = existingOrderData?.items || []
 
       const newItems = cartItems.map(([sku, qty]) => {
         const item = activeMenu.find((m) => m.sku === sku)
@@ -292,12 +363,10 @@ export default function FrontOfHouse() {
       const total_amount = merged.reduce((s, i) => s + i.unit_price * i.qty, 0)
 
       // Update bill total and send only new items to kitchen
-      await updateDoc(orderRef, { items: merged, total_amount, status: 'in_kitchen' })
+      await supabase.from('orders').update({ items: merged, total_amount, status: 'in_kitchen' }).eq('id', orderId)
 
-      const batch = writeBatch(db)
-      for (const item of newItems) {
-        const qRef = doc(collection(db, 'kitchen_queue'))
-        batch.set(qRef, {
+      await supabase.from('kitchen_queue').insert(
+        newItems.map((item) => ({
           order_id: orderId,
           table_id: selectedTable,
           item_sku: item.sku,
@@ -306,14 +375,13 @@ export default function FrontOfHouse() {
           qty: item.qty,
           station: 'kitchen',
           status: 'pending',
-          queued_at: serverTimestamp(),
+          queued_at: new Date().toISOString(),
           started_at: null,
           completed_at: null,
           prep_time_target_min: 15,
-        })
-      }
-      addInventoryDeductions(batch, newItems)
-      await batch.commit()
+        }))
+      )
+      await applyInventoryDeductions(newItems)
 
       setCart({})
       setAddingMore(false)
@@ -338,10 +406,8 @@ export default function FrontOfHouse() {
     try {
       const order = orders.find((o) => o.id === orderId)
       if (order?.items?.length) {
-        const batch = writeBatch(db)
-        for (const item of order.items) {
-          const qRef = doc(collection(db, 'kitchen_queue'))
-          batch.set(qRef, {
+        await supabase.from('kitchen_queue').insert(
+          order.items.map((item) => ({
             order_id: orderId,
             table_id: order.table_id,
             item_sku: item.sku,
@@ -350,13 +416,12 @@ export default function FrontOfHouse() {
             qty: item.qty,
             station: 'kitchen',
             status: 'pending',
-            queued_at: serverTimestamp(),
+            queued_at: new Date().toISOString(),
             started_at: null,
             completed_at: null,
             prep_time_target_min: 15,
-          })
-        }
-        await batch.commit()
+          }))
+        )
       }
     } catch (e) {
       console.error(e)
@@ -386,7 +451,7 @@ export default function FrontOfHouse() {
   async function handleMarkServed(orderId) {
     setBusy(true); setError(null)
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: 'served', served_at: serverTimestamp() })
+      await supabase.from('orders').update({ status: 'served', served_at: new Date().toISOString() }).eq('id', orderId)
     } catch (e) {
       console.error(e)
       setError(t('common.error'))
@@ -398,7 +463,7 @@ export default function FrontOfHouse() {
   async function handleAdvanceQueueItem(queueItem) {
     const nextStatus = queueItem.status === 'pending' ? 'in_progress' : 'ready'
     try {
-      await updateDoc(doc(db, 'kitchen_queue', queueItem.id), { status: nextStatus })
+      await supabase.from('kitchen_queue').update({ status: nextStatus }).eq('queue_id', queueItem.queue_id)
 
       if (nextStatus === 'ready') {
         // Check if all sibling items are now ready
@@ -406,10 +471,10 @@ export default function FrontOfHouse() {
           (q) => q.order_id === queueItem.order_id
         )
         const allReady = siblings.every(
-          (q) => q.id === queueItem.id ? true : q.status === 'ready'
+          (q) => q.queue_id === queueItem.queue_id ? true : q.status === 'ready'
         )
         if (allReady) {
-          await updateDoc(doc(db, 'orders', queueItem.order_id), { status: 'ready' })
+          await supabase.from('orders').update({ status: 'ready' }).eq('id', queueItem.order_id)
         }
       }
     } catch (e) {
@@ -422,10 +487,8 @@ export default function FrontOfHouse() {
   async function handleRecordPayment(orderId, method, total) {
     setBusy(true); setError(null)
     try {
-      const batch = writeBatch(db)
-      batch.update(doc(db, 'orders', orderId), { payment_method: method })
-      batch.update(doc(db, 'tables', selectedTable), { status: 'cleanup' })
-      await batch.commit()
+      await supabase.from('orders').update({ payment_method: method }).eq('id', orderId)
+      await supabase.from('tables').update({ status: 'cleanup' }).eq('table_id', selectedTable)
       setPaymentConfirmation({ tableId: selectedTable, total, method })
     } catch (e) {
       console.error(e)
@@ -435,7 +498,7 @@ export default function FrontOfHouse() {
 
   async function handleAssignTable(reservationId, tableId) {
     try {
-      await updateDoc(doc(db, 'reservations', reservationId), { table_id: tableId || null })
+      await supabase.from('reservations').update({ table_id: tableId || null }).eq('reservation_id', reservationId)
     } catch (e) {
       console.error(e)
     }
@@ -443,7 +506,7 @@ export default function FrontOfHouse() {
 
   async function handleSaveNote(reservationId) {
     try {
-      await updateDoc(doc(db, 'reservations', reservationId), { note: noteInput.trim() || null })
+      await supabase.from('reservations').update({ note: noteInput.trim() || null }).eq('reservation_id', reservationId)
       setEditingNoteId(null)
       setNoteInput('')
     } catch (e) {
@@ -453,7 +516,7 @@ export default function FrontOfHouse() {
 
   async function handleDeleteReservation(reservationId) {
     try {
-      await deleteDoc(doc(db, 'reservations', reservationId))
+      await supabase.from('reservations').delete().eq('reservation_id', reservationId)
     } catch (e) {
       console.error(e)
     }
@@ -462,18 +525,16 @@ export default function FrontOfHouse() {
   async function handleMarkClean(tableId) {
     setBusy(true); setError(null)
     try {
-      const batch = writeBatch(db)
-      batch.update(doc(db, 'tables', tableId), { status: 'open', seated_at: null })
+      await supabase.from('tables').update({ status: 'open', seated_at: null }).eq('table_id', tableId)
 
       // Complete any confirmed reservation tied to this table
       const linkedRes = (reservations || []).find(
         (r) => r.table_id === tableId && r.status === 'confirmed'
       )
       if (linkedRes) {
-        batch.update(doc(db, 'reservations', linkedRes.id), { status: 'completed', table_id: null })
+        await supabase.from('reservations').update({ status: 'completed', table_id: null }).eq('reservation_id', linkedRes.reservation_id)
       }
 
-      await batch.commit()
       setSelectedTable(null)
       setPaymentConfirmation(null)
     } catch (e) {
@@ -869,7 +930,7 @@ export default function FrontOfHouse() {
                       const elapsed = queuedAt ? Math.round((Date.now() - queuedAt.getTime()) / 60000) : 0
                       const delayColor = elapsed > 20 ? 'var(--pp-danger-text)' : elapsed > 10 ? '#D97706' : 'var(--pp-success-text)'
                       return (
-                        <div key={q.id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
+                        <div key={q.queue_id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                             <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
                               {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_sku) : (q.item_name_en || q.item_sku)}
@@ -952,10 +1013,11 @@ export default function FrontOfHouse() {
                     const [hh, mm] = form.time.split(':').map(Number)
                     const resTime = new Date()
                     resTime.setHours(hh, mm, 0, 0)
-                    await addDoc(collection(db, 'reservations'), {
+                    await supabase.from('reservations').insert({
+                      reservation_id: crypto.randomUUID(),
                       guest_name: form.name.trim(),
                       party_size: form.partySize,
-                      reservation_time: resTime,
+                      reservation_time: resTime.toISOString(),
                       status: 'confirmed',
                       table_id: null,
                       note: null,
@@ -995,7 +1057,7 @@ export default function FrontOfHouse() {
                 </thead>
                 <tbody>
                   {allUpcoming.map((r) => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
+                    <tr key={r.reservation_id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
                       <td style={{ padding: '12px' }}>{r.guest_name}</td>
                       <td style={{ padding: '12px' }}>{r.party_size}</td>
                       <td style={{ padding: '12px' }}>
@@ -1004,7 +1066,7 @@ export default function FrontOfHouse() {
                       <td style={{ padding: '12px' }}>
                         <select
                           value={r.table_id || ''}
-                          onChange={(e) => handleAssignTable(r.id, e.target.value)}
+                          onChange={(e) => handleAssignTable(r.reservation_id, e.target.value)}
                           style={{ border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px', background: 'white' }}
                         >
                           <option value="">{t('foh.noTableAssigned')}</option>
@@ -1016,7 +1078,7 @@ export default function FrontOfHouse() {
                         </select>
                       </td>
                       <td style={{ padding: '12px', minWidth: '160px' }}>
-                        {editingNoteId === r.id ? (
+                        {editingNoteId === r.reservation_id ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <input
                               autoFocus
@@ -1026,7 +1088,7 @@ export default function FrontOfHouse() {
                               style={{ flex: 1, border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }}
                             />
                             <button
-                              onClick={() => handleSaveNote(r.id)}
+                              onClick={() => handleSaveNote(r.reservation_id)}
                               style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
                             >
                               {t('foh.saveNote')}
@@ -1042,7 +1104,7 @@ export default function FrontOfHouse() {
                               {r.note || '—'}
                             </span>
                             <button
-                              onClick={() => { setEditingNoteId(r.id); setNoteInput(r.note || '') }}
+                              onClick={() => { setEditingNoteId(r.reservation_id); setNoteInput(r.note || '') }}
                               style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                             >
                               {t('foh.addNote')}
@@ -1063,7 +1125,7 @@ export default function FrontOfHouse() {
                         <button
                           onClick={() => {
                             if (window.confirm(i18n.language === 'vi' ? `Xoá đặt bàn của ${r.guest_name}?` : `Delete reservation for ${r.guest_name}?`)) {
-                              handleDeleteReservation(r.id)
+                              handleDeleteReservation(r.reservation_id)
                             }
                           }}
                           style={{ background: 'transparent', border: '1px solid var(--pp-danger-text)', color: 'var(--pp-danger-text)', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}

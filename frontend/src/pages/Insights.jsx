@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../services/firebase'
+import supabase from '../services/supabase'
 import { api } from '../services/api'
 
 const SEVERITY_COLORS = {
@@ -19,12 +18,21 @@ export default function Insights() {
   const [actionError, setActionError] = useState(null)
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'insights'), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (b.created_at?.toMillis?.() ?? 0) - (a.created_at?.toMillis?.() ?? 0))
+    // Initial fetch
+    supabase.from('insights').select('*').then(({ data }) => {
+      const list = data || []
+      list.sort((a, b) => (b.created_at ?? 0) > (a.created_at ?? 0) ? 1 : -1)
       setInsights(list)
     })
-    return unsub
+
+    // Real-time subscription
+    const channel = supabase.channel('insights')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insights' }, () => {
+        supabase.from('insights').select('*').then(({ data }) => setInsights(data || []))
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
   }, [])
 
   if (insights === null) {

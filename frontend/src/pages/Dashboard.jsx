@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db } from '../services/firebase'
+import supabase from '../services/supabase'
 import { api } from '../services/api'
 
 const RANGE_DAYS = { day: 1, week: 7, month: 30 }
@@ -38,29 +37,56 @@ export default function Dashboard() {
   useEffect(() => {
     // Load 30 days so we can compute day/week/month ranges client-side
     const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const recentOrders = query(collection(db, 'orders'), where('created_at', '>=', monthAgo))
-    const unsubOrders = onSnapshot(recentOrders, (snap) => {
-      setRawOrders(snap.docs.map((d) => d.data()))
-    })
-    const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
-      setTables(snap.docs.map((d) => d.data()))
-    })
-    const unsubInsights = onSnapshot(collection(db, 'insights'), (snap) => {
-      setInsights(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
-    return () => { unsubOrders(); unsubTables(); unsubInsights() }
+
+    // Initial fetches
+    supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString())
+      .then(({ data }) => setRawOrders(data || []))
+
+    supabase.from('tables').select('*')
+      .then(({ data }) => setTables(data || []))
+
+    supabase.from('insights').select('*')
+      .then(({ data }) => setInsights(data || []))
+
+    // Real-time subscriptions
+    const ordersChannel = supabase.channel('orders-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString())
+          .then(({ data }) => setRawOrders(data || []))
+      })
+      .subscribe()
+
+    const tablesChannel = supabase.channel('tables-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
+        supabase.from('tables').select('*')
+          .then(({ data }) => setTables(data || []))
+      })
+      .subscribe()
+
+    const insightsChannel = supabase.channel('insights-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insights' }, () => {
+        supabase.from('insights').select('*')
+          .then(({ data }) => setInsights(data || []))
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(ordersChannel)
+      supabase.removeChannel(tablesChannel)
+      supabase.removeChannel(insightsChannel)
+    }
   }, [])
 
   // Derive today's orders for covers/avgTicket KPIs
   const orders = useMemo(() => {
     if (!rawOrders) return null
     return rawOrders.filter((o) => {
-      const created = o.created_at?.toDate ? o.created_at.toDate() : o.created_at ? new Date(o.created_at) : null
+      const created = o.created_at ? new Date(o.created_at) : null
       return created && isSameDay(created)
     })
   }, [rawOrders])
 
-  // Revenue for the selected range (computed from Firestore data, no backend needed)
+  // Revenue for the selected range (computed from Supabase data, no backend needed)
   const rangeRevenue = useMemo(() => {
     if (!rawOrders) return null
     const days = RANGE_DAYS[revenueRange] ?? 1
@@ -68,7 +94,7 @@ export default function Dashboard() {
     return rawOrders
       .filter((o) => o.status === 'served' && o.created_at)
       .filter((o) => {
-        const ts = o.created_at?.toDate ? o.created_at.toDate() : new Date(o.created_at)
+        const ts = new Date(o.created_at)
         return ts >= cutoff
       })
       .reduce((sum, o) => sum + (o.total_amount || 0), 0)

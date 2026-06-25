@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../services/firebase'
+import supabase from '../services/supabase'
 
 function toDate(value) {
   if (!value) return null
@@ -32,10 +31,19 @@ export default function GuestEngagement() {
   const [reservations, setReservations] = useState(null)
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'reservations'), (snap) => {
-      setReservations(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    // Initial fetch
+    supabase.from('reservations').select('*').then(({ data }) => {
+      setReservations(data || [])
     })
-    return unsub
+
+    // Real-time subscription
+    const channel = supabase.channel('reservations-guest')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+        supabase.from('reservations').select('*').then(({ data }) => setReservations(data || []))
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
   }, [])
 
   if (reservations === null) {

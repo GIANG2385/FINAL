@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
-import { db } from '../services/firebase'
+import { auth } from '../services/firebase'
+import supabase from '../services/supabase'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -43,10 +43,26 @@ export default function Consultant() {
 
   useEffect(() => {
     if (!user) return
-    const q = query(collection(db, 'consultant_conversations', user.uid, 'messages'), orderBy('created_at', 'asc'))
-    return onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
+    const uid = auth.currentUser?.uid
+    if (!uid) return
+
+    supabase.from('consultant_messages')
+      .select('*')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => setMessages(data || []))
+
+    const channel = supabase.channel('consultant-messages')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'consultant_messages' }, () => {
+        supabase.from('consultant_messages')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: true })
+          .then(({ data }) => setMessages(data || []))
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
   }, [user])
 
   useEffect(() => {

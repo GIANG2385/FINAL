@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { addDoc, collection, deleteDoc, doc, onSnapshot, query, updateDoc, where, writeBatch } from 'firebase/firestore'
-import { db } from '../services/firebase'
+import supabase from '../services/supabase'
 import { MENU_ITEMS } from '../data/menu'
 
 function formatVnd(amount, lang) {
@@ -83,50 +82,83 @@ export default function BackOfHouse() {
   }
 
   useEffect(() => {
-    const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
-      setStaffShifts(snap.docs.map((d) => d.data()))
+    // ── staff_shifts ──
+    supabase.from('staff_shifts').select('*').then(({ data }) => {
+      setStaffShifts(data || [])
     })
+    const shiftsChannel = supabase.channel('staff-shifts-boh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shifts' }, () => {
+        supabase.from('staff_shifts').select('*').then(({ data }) => setStaffShifts(data || []))
+      })
+      .subscribe()
+
+    // ── orders (today) ──
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
-    const todayOrders = query(collection(db, 'orders'), where('created_at', '>=', dayStart))
-    const unsubOrders = onSnapshot(todayOrders, (snap) => {
-      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const dayEnd = new Date(); dayEnd.setHours(23, 59, 59, 999)
+    const startOfToday = dayStart.toISOString()
+    const endOfToday = dayEnd.toISOString()
+
+    supabase.from('orders').select('*').gte('created_at', startOfToday).lt('created_at', endOfToday).then(({ data }) => {
+      setOrders(data || [])
     })
-    const unsubInv = onSnapshot(collection(db, 'inventory'), async (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const ordersChannel = supabase.channel('orders-boh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        supabase.from('orders').select('*').gte('created_at', startOfToday).lt('created_at', endOfToday).then(({ data }) => setOrders(data || []))
+      })
+      .subscribe()
+
+    // ── inventory ──
+    supabase.from('inventory').select('*').then(async ({ data }) => {
+      const items = data || []
       setInventoryRaw(items)
       // Auto-seed unit_cost if none of the items have it yet
       if (!costSeededRef.current && items.length > 0 && items.every((i) => i.unit_cost == null)) {
         costSeededRef.current = true
-        const batch = writeBatch(db)
-        items.forEach((item) => {
+        for (const item of items) {
           if (UNIT_COSTS[item.sku] != null) {
-            batch.update(doc(db, 'inventory', item.id), { unit_cost: UNIT_COSTS[item.sku] })
+            await supabase.from('inventory').update({ unit_cost: UNIT_COSTS[item.sku] }).eq('sku', item.sku).catch(console.error)
           }
-        })
-        await batch.commit().catch(console.error)
+        }
       }
     })
-    const unsubMenu = onSnapshot(collection(db, 'menu_items'), async (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const invChannel = supabase.channel('inventory-boh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
+        supabase.from('inventory').select('*').then(({ data }) => setInventoryRaw(data || []))
+      })
+      .subscribe()
+
+    // ── menu_items ──
+    supabase.from('menu_items').select('*').then(async ({ data }) => {
+      const items = data || []
       setMenuItems(items)
       // Auto-seed from hardcoded MENU_ITEMS if collection is empty
       if (items.length === 0 && !seededRef.current) {
         seededRef.current = true
-        const batch = writeBatch(db)
         for (const m of MENU_ITEMS) {
-          const ref = doc(collection(db, 'menu_items'))
-          batch.set(ref, {
+          await supabase.from('menu_items').insert({
             sku: m.sku, name_en: m.name_en, name_vi: m.name_vi,
             unit_price: m.unit_price, recipes: m.recipes || [],
-          })
+          }).catch(console.error)
         }
-        await batch.commit()
+        // Refresh after seeding
+        supabase.from('menu_items').select('*').then(({ data: seeded }) => setMenuItems(seeded || []))
       }
     })
-    return () => { unsubShifts(); unsubOrders(); unsubInv(); unsubMenu() }
+    const menuChannel = supabase.channel('menu-items-boh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, () => {
+        supabase.from('menu_items').select('*').then(({ data }) => setMenuItems(data || []))
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(shiftsChannel)
+      supabase.removeChannel(ordersChannel)
+      supabase.removeChannel(invChannel)
+      supabase.removeChannel(menuChannel)
+    }
   }, [])
 
-  // Compute profit from Firestore data (same logic as backend profitController)
+  // Compute profit from Supabase data (same logic as backend profitController)
   const profit = useMemo(() => {
     if (!orders || !staffShifts) return null
     const revenue = orders.filter((o) => o.status === 'served').reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -139,7 +171,7 @@ export default function BackOfHouse() {
     return { revenue, food_cost, labor_cost, profit: revenue - food_cost - labor_cost }
   }, [orders, staffShifts])
 
-  // Compute stockout forecast from Firestore data (same logic as backend inventoryController)
+  // Compute stockout forecast from Supabase data (same logic as backend inventoryController)
   const inventory = useMemo(() => {
     if (!inventoryRaw) return null
     const now = Date.now()
@@ -166,7 +198,7 @@ export default function BackOfHouse() {
     const updates = { current_stock: getStock(item) }
     if (localUnitCost[item.sku] !== undefined) updates.unit_cost = localUnitCost[item.sku]
     try {
-      await updateDoc(doc(db, 'inventory', item.id), updates)
+      await supabase.from('inventory').update(updates).eq('sku', item.sku)
       setLocalStock((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
       setLocalUnitCost((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
     } catch (e) { console.error(e) }
@@ -184,7 +216,7 @@ export default function BackOfHouse() {
     const unit_price = Number(newDish.unit_price)
     if (!name_en || !name_vi || !unit_price) { setRecipeError('All fields required'); return }
     try {
-      await addDoc(collection(db, 'menu_items'), {
+      await supabase.from('menu_items').insert({
         sku: `M-${name_en.toUpperCase().replace(/\s+/g, '-').slice(0, 20)}-${Date.now().toString(36).slice(-4)}`,
         name_en, name_vi, unit_price, recipes: [],
       })
@@ -196,7 +228,7 @@ export default function BackOfHouse() {
 
   async function handleDeleteDish(dishId) {
     if (!window.confirm(i18n.language === 'vi' ? 'Xoá món này?' : 'Delete this dish?')) return
-    try { await deleteDoc(doc(db, 'menu_items', dishId)) } catch (e) { console.error(e) }
+    try { await supabase.from('menu_items').delete().eq('sku', dishId) } catch (e) { console.error(e) }
   }
 
   async function handleAddIngredient(dish) {
@@ -208,7 +240,7 @@ export default function BackOfHouse() {
     const inv = invMap[sku]
     const updated = [...(dish.recipes || []), { ingredient_sku: sku, ingredient_name_en: inv?.name_en || sku, ingredient_name_vi: inv?.name_vi || sku, qty, unit: inv?.unit || '' }]
     try {
-      await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated })
+      await supabase.from('menu_items').update({ recipes: updated }).eq('sku', dish.sku)
       setNewIngredient({ ingredient_sku: '', qty: '' })
       setAddIngredientTo(null)
       setRecipeError(null)
@@ -217,12 +249,12 @@ export default function BackOfHouse() {
 
   async function handleDeleteIngredient(dish, ingredientSku) {
     const updated = (dish.recipes || []).filter((r) => r.ingredient_sku !== ingredientSku)
-    try { await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated }) } catch (e) { console.error(e) }
+    try { await supabase.from('menu_items').update({ recipes: updated }).eq('sku', dish.sku) } catch (e) { console.error(e) }
   }
 
   function startEditIngredient(dish, r) {
     const inv = invMap[r.ingredient_sku]
-    setEditingIngredient({ dishId: dish.id, ingredient_sku: r.ingredient_sku })
+    setEditingIngredient({ dishId: dish.sku, ingredient_sku: r.ingredient_sku })
     setEditValues({ qty: String(r.qty), unit_cost: String(inv?.unit_cost ?? '') })
     setRecipeError(null)
   }
@@ -236,12 +268,12 @@ export default function BackOfHouse() {
       const updated = (dish.recipes || []).map((r) =>
         r.ingredient_sku === editingIngredient.ingredient_sku ? { ...r, qty } : r
       )
-      await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated })
+      await supabase.from('menu_items').update({ recipes: updated }).eq('sku', dish.sku)
 
       // Update unit_cost on the inventory item if provided
       if (unit_cost !== null) {
         const inv = invMap[editingIngredient.ingredient_sku]
-        if (inv?.id) await updateDoc(doc(db, 'inventory', inv.id), { unit_cost })
+        if (inv?.sku) await supabase.from('inventory').update({ cost_per_unit: unit_cost }).eq('sku', inv.sku)
       }
 
       setEditingIngredient(null)
@@ -253,7 +285,7 @@ export default function BackOfHouse() {
   async function handleUpdateDishPrice(dish, newPrice) {
     const price = Number(newPrice)
     if (!price || price <= 0) return
-    try { await updateDoc(doc(db, 'menu_items', dish.id), { unit_price: price }) } catch (e) { console.error(e) }
+    try { await supabase.from('menu_items').update({ unit_price: price }).eq('sku', dish.sku) } catch (e) { console.error(e) }
   }
 
   const now = new Date()
@@ -432,7 +464,7 @@ export default function BackOfHouse() {
                 const margin = dish.unit_price && dishCost ? ((dish.unit_price - dishCost) / dish.unit_price * 100).toFixed(1) : null
 
                 return (
-                  <div key={dish.id} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+                  <div key={dish.sku} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
                     {/* Dish header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 16px', borderBottom: '1px solid var(--pp-border)', background: 'var(--pp-yellow)' }}>
                       <div>
@@ -463,7 +495,7 @@ export default function BackOfHouse() {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleDeleteDish(dish.id)}
+                        onClick={() => handleDeleteDish(dish.sku)}
                         style={{ background: 'transparent', border: '1px solid var(--pp-danger-text)', color: 'var(--pp-danger-text)', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                       >
                         {i18n.language === 'vi' ? 'Xoá món' : 'Delete Dish'}
@@ -494,7 +526,7 @@ export default function BackOfHouse() {
                         ) : (dish.recipes || []).map((r) => {
                           const inv = invMap[r.ingredient_sku]
                           const lineCost = r.qty * (inv?.unit_cost ?? 0)
-                          const isEditing = editingIngredient?.dishId === dish.id && editingIngredient?.ingredient_sku === r.ingredient_sku
+                          const isEditing = editingIngredient?.dishId === dish.sku && editingIngredient?.ingredient_sku === r.ingredient_sku
                           return (
                             <tr key={r.ingredient_sku} style={{ borderTop: '1px solid var(--pp-border)', background: isEditing ? 'var(--pp-info-bg)' : 'transparent' }}>
                               <td style={{ padding: '10px 12px', fontWeight: 500 }}>
@@ -566,7 +598,7 @@ export default function BackOfHouse() {
 
                     {/* Add Ingredient */}
                     <div style={{ padding: '10px 12px', borderTop: '1px solid var(--pp-border)' }}>
-                      {addIngredientTo === dish.id ? (
+                      {addIngredientTo === dish.sku ? (
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           <select
                             value={newIngredient.ingredient_sku}
@@ -602,7 +634,7 @@ export default function BackOfHouse() {
                         </div>
                       ) : (
                         <button
-                          onClick={() => { setAddIngredientTo(dish.id); setNewIngredient({ ingredient_sku: '', qty: '' }); setRecipeError(null) }}
+                          onClick={() => { setAddIngredientTo(dish.sku); setNewIngredient({ ingredient_sku: '', qty: '' }); setRecipeError(null) }}
                           style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '5px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--pp-text-muted)' }}
                         >
                           + {i18n.language === 'vi' ? 'Thêm nguyên liệu' : 'Add ingredient'}

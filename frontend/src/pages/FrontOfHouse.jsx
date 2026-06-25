@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  collection, doc, onSnapshot, query,
+  addDoc, collection, doc, onSnapshot, query,
   runTransaction, serverTimestamp, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
@@ -59,8 +59,7 @@ export default function FrontOfHouse() {
   const [error, setError] = useState(null)
   const [paymentConfirmation, setPaymentConfirmation] = useState(null)
   const [spikeAlert, setSpikeAlert] = useState(false)
-  // Local reservation form
-  const [localReservations, setLocalReservations] = useState([])
+  // Reservation form
   const [form, setForm] = useState({ name: '', partySize: 2, time: '18:00' })
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState(null)
@@ -266,7 +265,7 @@ export default function FrontOfHouse() {
     const time = toDate(r.reservation_time)
     return r.status === 'confirmed' && time && time.getTime() >= Date.now()
   })
-  const allUpcoming = [...upcoming, ...localReservations.filter((r) => r.status === 'confirmed')]
+  const allUpcoming = upcoming
 
   return (
     <div style={{ padding: '28px 32px' }}>
@@ -636,10 +635,30 @@ export default function FrontOfHouse() {
                 />
               </div>
               <button
-                onClick={() => {
-                  if (!form.name.trim()) { setFormError(i18n.language === 'vi' ? 'Vui lòng nhập tên khách' : 'Please enter guest name'); return }
-                  setLocalReservations((prev) => [...prev, { id: Date.now(), guest_name: form.name, party_size: form.partySize, time: form.time, status: 'confirmed' }])
-                  setForm({ name: '', partySize: 2, time: '18:00' }); setFormOpen(false); setFormError(null)
+                onClick={async () => {
+                  if (!form.name.trim()) {
+                    setFormError(i18n.language === 'vi' ? 'Vui lòng nhập tên khách' : 'Please enter guest name')
+                    return
+                  }
+                  try {
+                    const [hh, mm] = form.time.split(':').map(Number)
+                    const resTime = new Date()
+                    resTime.setHours(hh, mm, 0, 0)
+                    await addDoc(collection(db, 'reservations'), {
+                      guest_name: form.name.trim(),
+                      party_size: form.partySize,
+                      reservation_time: resTime,
+                      status: 'confirmed',
+                      table_id: null,
+                      note: null,
+                    })
+                    setForm({ name: '', partySize: 2, time: '18:00' })
+                    setFormOpen(false)
+                    setFormError(null)
+                  } catch (e) {
+                    console.error(e)
+                    setFormError(i18n.language === 'vi' ? 'Lỗi khi lưu đặt bàn' : 'Error saving reservation')
+                  }
                 }}
                 style={{ alignSelf: 'flex-start', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '7px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
               >{t('common.save')}</button>

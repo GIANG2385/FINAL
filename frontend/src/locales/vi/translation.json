@@ -73,7 +73,18 @@
     "reservations": "Đặt bàn hôm nay",
     "addReservation": "Thêm đặt bàn",
     "peakForecast": "Dự kiến đông khách lúc 18:30–20:00 dựa trên lịch sử đặt bàn",
-    "reservationAdded": "Đã thêm đặt bàn"
+    "reservationAdded": "Đã thêm đặt bàn",
+    "markClean": "Đánh dấu sạch / Mở bàn",
+    "waitingForKitchen": "Đang chờ bếp…",
+    "addMoreItems": "Thêm món",
+    "assignTable": "Gán bàn",
+    "noTableAssigned": "Chưa gán bàn",
+    "addNote": "Thêm ghi chú",
+    "notePlaceholder": "Thêm ghi chú...",
+    "saveNote": "Lưu ghi chú",
+    "vnpayQR": "Quét QR để thanh toán VNPay",
+    "confirmPayment": "Xác nhận đã nhận",
+    "paymentCancelled": "Thanh toán thất bại — thử lại"
   },
   "boh": {
     "inventory": "Tồn kho",

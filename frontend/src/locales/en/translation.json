@@ -73,7 +73,18 @@
     "reservations": "Today's Reservations",
     "addReservation": "Add Reservation",
     "peakForecast": "Peak expected 18:30–20:00 based on booking history",
-    "reservationAdded": "Reservation added"
+    "reservationAdded": "Reservation added",
+    "markClean": "Mark Clean / Open Table",
+    "waitingForKitchen": "Waiting for kitchen…",
+    "addMoreItems": "Add More Items",
+    "assignTable": "Assign Table",
+    "noTableAssigned": "No table assigned",
+    "addNote": "Add Note",
+    "notePlaceholder": "Add a note...",
+    "saveNote": "Save Note",
+    "vnpayQR": "Scan QR to pay with VNPay",
+    "confirmPayment": "Confirm Received",
+    "paymentCancelled": "Payment cancelled — try again"
   },
   "boh": {
     "inventory": "Inventory",

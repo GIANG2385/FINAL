@@ -237,6 +237,18 @@ export default function FrontOfHouse() {
     } finally { setBusy(false) }
   }
 
+  async function handleMarkClean(tableId) {
+    setBusy(true); setError(null)
+    try {
+      await updateDoc(doc(db, 'tables', tableId), { status: 'open', seated_at: null })
+      setSelectedTable(null)
+      setPaymentConfirmation(null)
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
+  }
+
   const tabs = [
     { id: 'tables',       label: i18n.language === 'vi' ? 'Sơ đồ bàn' : 'Tables' },
     { id: 'orders',       label: i18n.language === 'vi' ? 'Theo dõi đơn' : 'Orders' },
@@ -384,35 +396,61 @@ export default function FrontOfHouse() {
                   </button>
                 </div>
               ) : !activeOrder ? (
-                /* New order — item picker */
-                <div>
-                  <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
-                    {i18n.language === 'vi' ? 'Chọn món để tạo đơn hàng mới' : 'Select items to create a new order'}
-                  </p>
-                  {MENU_ITEMS.map((item) => (
-                    <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
-                      <div>
-                        <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
-                        <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
+                (() => {
+                  const tbl = tables.find((tb) => tb.table_id === selectedTable)
+                  if (tbl?.status === 'cleanup') {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                        <div style={{ fontSize: '32px', marginBottom: '8px' }}>🧹</div>
+                        <p style={{ fontSize: '14px', color: 'var(--pp-text-muted)', marginBottom: '20px' }}>
+                          {i18n.language === 'vi' ? 'Bàn đang được dọn dẹp' : 'Table is being cleaned'}
+                        </p>
+                        <button
+                          disabled={busy}
+                          onClick={() => handleMarkClean(selectedTable)}
+                          style={{
+                            width: '100%', background: 'var(--pp-primary)', color: 'white',
+                            border: 'none', borderRadius: '99px', padding: '10px',
+                            fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                            opacity: busy ? 0.5 : 1,
+                          }}
+                        >
+                          {busy ? '…' : t('foh.markClean')}
+                        </button>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
-                        <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
-                        <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                    )
+                  }
+                  return (
+                    <div>
+                      <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
+                        {i18n.language === 'vi' ? 'Chọn món để tạo đơn hàng mới' : 'Select items to create a new order'}
+                      </p>
+                      {MENU_ITEMS.map((item) => (
+                        <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
+                          <div>
+                            <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                            <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
+                            <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
+                            <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '16px' }}>{formatVnd(cartTotal, i18n.language)}</span>
+                        <button
+                          disabled={busy || cartItems.length === 0}
+                          onClick={handleCreateOrder}
+                          style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px 22px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: (busy || cartItems.length === 0) ? 0.5 : 1 }}
+                        >
+                          {busy ? '…' : t('foh.createOrder')}
+                        </button>
                       </div>
                     </div>
-                  ))}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px' }}>
-                    <span style={{ fontWeight: 700, fontSize: '16px' }}>{formatVnd(cartTotal, i18n.language)}</span>
-                    <button
-                      disabled={busy || cartItems.length === 0}
-                      onClick={handleCreateOrder}
-                      style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px 22px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: (busy || cartItems.length === 0) ? 0.5 : 1 }}
-                    >
-                      {busy ? '…' : t('foh.createOrder')}
-                    </button>
-                  </div>
-                </div>
+                  )
+                })()
               ) : (
                 /* Active order — bill view */
                 <div>

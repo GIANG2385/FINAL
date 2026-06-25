@@ -1,4 +1,5 @@
 import { db } from '../firebaseAdmin.js'
+import { supabase } from '../supabaseClient.js'
 import { getChatCompletion } from '../services/cohereClient.js'
 import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
@@ -34,19 +35,19 @@ async function buildDataSnapshot() {
   const today = startOfToday()
   const now = new Date()
 
-  // ── Revenue (today's served orders) ──────────────────────────────────────
-  // Server-side range filter (not status-filtered, to avoid needing a
-  // composite index) — orders holds 10,000+ historical rows.
-  const ordersSnap = await db.collection('orders').where('served_at', '>=', today).get()
-  const todayOrders = ordersSnap.docs.map((d) => d.data())
-  const revenue = todayOrders.reduce((sum, o) => (o.status === 'served' ? sum + (o.total_amount || 0) : sum), 0)
-  const covers = todayOrders.filter((o) => o.status === 'served').length
+  // ── Revenue (today's served orders from Supabase) ────────────────────────
+  const { data: todayOrders = [] } = await supabase
+    .from('orders')
+    .select('total_amount, status, items')
+    .eq('status', 'served')
+    .gte('served_at', today.toISOString())
+  const revenue = todayOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+  const covers = todayOrders.length
   const avgTicket = covers > 0 ? Math.round(revenue / covers) : 0
 
   // Top items by quantity sold today
   const itemCounts = {}
   for (const order of todayOrders) {
-    if (order.status !== 'served') continue
     for (const item of order.items || []) {
       const key = item.name_en || item.sku || 'unknown'
       itemCounts[key] = (itemCounts[key] || 0) + (item.qty || 1)
@@ -270,7 +271,13 @@ export async function sendMessage(req, res) {
     .reverse()
     .map((m) => ({ role: m.role, content: m.content }))
 
-  const snapshot = await buildDataSnapshot()
+  let snapshot
+  try {
+    snapshot = await buildDataSnapshot()
+  } catch (err) {
+    console.error('buildDataSnapshot failed:', err.message)
+    snapshot = '(Live data snapshot unavailable — answer based on general restaurant operations knowledge.)'
+  }
 
   let reply
   try {

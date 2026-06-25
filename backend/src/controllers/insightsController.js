@@ -1,4 +1,4 @@
-import { db } from '../firebaseAdmin.js'
+// src/controllers/insightsController.js
 import { supabase } from '../supabaseClient.js'
 import { forecastStockout, forecastKitchenOverload } from '../services/riskForecast.js'
 import { analyzeRootCause } from '../services/rootCauseEngine.js'
@@ -11,14 +11,17 @@ function toDate(value) {
 }
 
 async function hasRecentOpenInsight(type, matchKey, matchValue) {
-  const snap = await db.collection('insights').where('type', '==', type).get()
+  const { data, error } = await supabase
+    .from('insights')
+    .select('status, created_at, related_entities')
+    .eq('type', type)
+  if (error) throw new Error(error.message)
   const cutoff = Date.now() - 30 * 60 * 1000
-  return snap.docs.some((doc) => {
-    const data = doc.data()
-    if (data.status === 'acted_on') return false
-    const createdAt = toDate(data.created_at)
+  return (data || []).some((row) => {
+    if (row.status === 'acted_on') return false
+    const createdAt = toDate(row.created_at)
     if (!createdAt || createdAt.getTime() < cutoff) return false
-    return data.related_entities?.[matchKey] === matchValue
+    return row.related_entities?.[matchKey] === matchValue
   })
 }
 
@@ -35,9 +38,12 @@ export async function runAnalysisInternal() {
   const created = []
 
   // --- Risk forecast: stockouts ---
-  const inventorySnap = await db.collection('inventory').get()
-  for (const doc of inventorySnap.docs) {
-    const item = doc.data()
+  const { data: inventoryRows, error: invErr } = await supabase
+    .from('inventory')
+    .select('*')
+  if (invErr) throw new Error(invErr.message)
+
+  for (const item of inventoryRows || []) {
     const hourlyConsumption = (item.avg_daily_consumption || 0) / 24
     const hours_remaining = hourlyConsumption > 0 ? item.current_stock / hourlyConsumption : null
     const draft = forecastStockout({ ...item, hours_remaining })
@@ -47,8 +53,13 @@ export async function runAnalysisInternal() {
   }
 
   // --- Risk forecast: kitchen overload ---
-  const queueSnap = await db.collection('kitchen_queue').where('status', '!=', 'ready').get()
-  const activeQueue = queueSnap.docs.map((d) => d.data())
+  const { data: queueRows, error: qErr } = await supabase
+    .from('kitchen_queue')
+    .select('*')
+    .neq('status', 'ready')
+  if (qErr) throw new Error(qErr.message)
+
+  const activeQueue = queueRows || []
   if (activeQueue.length > 0) {
     const now = Date.now()
     const elapsedList = activeQueue.map((q) => {
@@ -77,13 +88,12 @@ export async function runAnalysisInternal() {
     .eq('status', 'served')
     .gte('served_at', recentCutoff.toISOString())
   if (recentErr) throw new Error(recentErr.message)
-  const recentRevenue = recentOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+  const recentRevenue = (recentOrders || []).reduce((s, o) => s + (o.total_amount || 0), 0)
 
   const baseline = await getHistoricalBaseline()
   const baselineRevenue = typicalRevenueForWindow(baseline, new Date(now).getHours() - 1, 2)
 
-  const stockoutSkus = inventorySnap.docs
-    .map((d) => d.data())
+  const stockoutSkus = (inventoryRows || [])
     .filter((item) => item.current_stock <= 0)
     .map((item) => item.sku)
 
@@ -94,16 +104,27 @@ export async function runAnalysisInternal() {
     kitchenOverloaded: activeQueue.length >= 5,
     complaintCount: 0,
   })
-  if (rootCauseDraft && !(await hasRecentOpenInsight('root_cause', 'kitchen_overloaded', rootCauseDraft.related_entities.kitchen_overloaded))) {
+  if (
+    rootCauseDraft &&
+    !(await hasRecentOpenInsight(
+      'root_cause',
+      'kitchen_overloaded',
+      rootCauseDraft.related_entities.kitchen_overloaded,
+    ))
+  ) {
     created.push(appendRecommendation(rootCauseDraft))
   }
 
-  const batch = db.batch()
-  for (const insight of created) {
-    const ref = db.collection('insights').doc()
-    batch.set(ref, { ...insight, created_at: new Date(), status: 'new' })
+  if (created.length > 0) {
+    const rows = created.map((insight) => ({
+      id: crypto.randomUUID(),
+      ...insight,
+      created_at: new Date().toISOString(),
+      status: 'new',
+    }))
+    const { error: insertErr } = await supabase.from('insights').insert(rows)
+    if (insertErr) throw new Error(insertErr.message)
   }
-  if (created.length > 0) await batch.commit()
 
   return created.length
 }
@@ -115,31 +136,44 @@ export async function runAnalysis(req, res) {
 
 export async function listInsights(req, res) {
   const { type, severity, status } = req.query
-  let query = db.collection('insights')
-  if (type) query = query.where('type', '==', type)
-  if (severity) query = query.where('severity', '==', severity)
-  if (status) query = query.where('status', '==', status)
+  let query = supabase.from('insights').select('*')
+  if (type) query = query.eq('type', type)
+  if (severity) query = query.eq('severity', severity)
+  if (status) query = query.eq('status', status)
 
-  const snap = await query.get()
-  const insights = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => (toDate(b.created_at)?.getTime() ?? 0) - (toDate(a.created_at)?.getTime() ?? 0))
-  res.json(insights)
+  const { data, error } = await query.order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data || [])
 }
 
 export async function acknowledgeInsight(req, res) {
   const { id } = req.params
-  const userDoc = await db.collection('users').doc(req.user.uid).get()
-  const role = userDoc.exists ? userDoc.data().role : null
+
+  // Check user role from Supabase users table
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('uid', req.user.uid)
+    .single()
+  const role = userRow?.role ?? null
   if (!['manager', 'admin'].includes(role)) {
     return res.status(403).json({ error: 'Only manager/admin can acknowledge insights' })
   }
 
-  const ref = db.collection('insights').doc(id)
-  const snap = await ref.get()
-  if (!snap.exists) return res.status(404).json({ error: 'Insight not found' })
+  const { data: existing } = await supabase
+    .from('insights')
+    .select('id')
+    .eq('id', id)
+    .single()
+  if (!existing) return res.status(404).json({ error: 'Insight not found' })
 
-  await ref.update({ status: 'acknowledged' })
-  const updated = await ref.get()
-  res.json({ id, ...updated.data() })
+  const { data: updated, error: updateErr } = await supabase
+    .from('insights')
+    .update({ status: 'acknowledged' })
+    .eq('id', id)
+    .select()
+    .single()
+  if (updateErr) return res.status(500).json({ error: updateErr.message })
+
+  res.json(updated)
 }

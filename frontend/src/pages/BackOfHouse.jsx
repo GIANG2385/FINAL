@@ -351,8 +351,8 @@ export default function BackOfHouse() {
                         background: rowStatus === 'critical' ? 'var(--pp-danger-bg)' : rowStatus === 'warning' ? 'var(--pp-warning-bg)' : 'transparent',
                       }}>
                         <td style={{ padding: '12px' }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</td>
-                        <td style={{ padding: '12px' }}>{stock} {item.unit}</td>
-                        <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{parLevel} {item.unit}</td>
+                        <td style={{ padding: '12px' }}>{Number(stock).toFixed(2)} {item.unit}</td>
+                        <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{Number(parLevel).toFixed(2)} {item.unit}</td>
                         <td style={{ padding: '12px', color: rowStatus === 'critical' ? 'var(--pp-danger-text)' : 'var(--pp-text-muted)', fontWeight: rowStatus === 'critical' ? 600 : 400 }}>
                           {item.stockout_at ? t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) }) : '—'}
                         </td>

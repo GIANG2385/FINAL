@@ -179,14 +179,12 @@ export default function Dashboard() {
           { label: 'Avg Ticket', value: formatVnd(avgTicket), delta: '+5%', deltaUp: true, sub: 'vs typical', icon: '🧾' },
           { label: 'Occupancy', value: `${occupied}/${tables.length}`, delta: `${Math.round((occupied / Math.max(tables.length, 1)) * 100)}%`, deltaUp: occupied > tables.length / 2, sub: 'tables active', icon: '⊞' },
         ].map((kpi) => (
-          <div key={kpi.label} style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px 18px' }}>
-            {kpi.extra || null}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <span style={{ fontSize: '10px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{kpi.label}</span>
-              <span style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #FFB3C1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#E8002A' }}>{kpi.icon}</span>
-            </div>
-            <div style={{ fontSize: '28px', fontWeight: 800, color: '#1A1A1A', lineHeight: 1.1, marginBottom: '6px' }}>{kpi.value}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div key={kpi.label} style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+            {kpi.extra && <div style={{ alignSelf: 'stretch' }}>{kpi.extra}</div>}
+            <span style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #FFB3C1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: '#E8002A', marginBottom: '10px' }}>{kpi.icon}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>{kpi.label}</span>
+            <div style={{ fontSize: '28px', fontWeight: 800, color: '#1A1A1A', lineHeight: 1.1, marginBottom: '8px' }}>{kpi.value}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, color: kpi.deltaUp ? '#16A34A' : '#DC2626' }}>{kpi.deltaUp ? '▲' : '▼'} {kpi.delta}</span>
               <span style={{ fontSize: '11px', color: '#AAA' }}>{kpi.sub}</span>
             </div>
@@ -212,7 +210,7 @@ export default function Dashboard() {
       </div>
 
       {/* Alerts + Floor plan */}
-      <div style={{ display: 'grid', gridTemplateColumns: '44% 1fr', gap: '16px', marginBottom: '18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '44% 1fr', gap: '16px', marginBottom: '18px', alignItems: 'stretch' }}>
 
         {/* Alerts */}
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px' }}>
@@ -265,7 +263,7 @@ export default function Dashboard() {
         </div>
 
         {/* Floor plan */}
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px' }}>
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontWeight: 700, fontSize: '14px', color: '#1A1A1A' }}>Live Floor Status</span>
             <div style={{ display: 'flex', gap: '12px' }}>

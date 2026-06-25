@@ -37,7 +37,7 @@
 - **AI Consultant:** Cohere API (`command-a-03-2025`), not OpenAI. Free tier key in `backend/.env`. Conversation persisted to `consultant_conversations/{uid}/messages`. Manager/admin only.
 - **No backend calls from frontend for data:** all reads/writes go directly to Firestore SDK. `VITE_API_BASE_URL=http://localhost:4000` is only used for AI Consultant messages and insights acknowledge — these fail gracefully in production (Consultant shows error, Dashboard acknowledge silently catches).
 - **Historical baseline:** precomputed into `analytics/historical_baseline` by `computeHistoricalBaseline.js`. Used by profit controller and AI Consultant for "vs typical" comparisons.
-- **Firestore security rules:** published live. Staff role cannot write insights/inventory/staff_shifts. `consultant_conversations/{uid}` is owner-only.
+- **Firestore security rules:** published live. All signed-in users (staff/manager/admin) can read/write all operational collections. AI Consultant (`consultant_conversations`) is manager/admin only. Dashboard route is manager/admin only — staff are redirected to `/foh` on login.
 
 ---
 
@@ -85,7 +85,7 @@ Steps 1–11 completed in full. Key milestones:
 - Dashboard revenue range toggle (today/week/month) with historical comparison line
 - FOH bill clarity: order panel styled as a bill with status badge + payment confirmation screen
 
-### 2026-06-25
+### 2026-06-25 (continued — post-brand)
 
 **Pang Pang brand redesign + full UI restructure**
 
@@ -132,3 +132,46 @@ CSS custom properties in `index.css`:
 `backend/src/scripts/generateJuneData.js`: generates 1,560 orders (1,170 dine-in + 390 takeaway) + 210 reservations for June 1–30 2026. Sessions: lunch 11:00–14:00, dinner 18:00–22:00. Channels: `dine_in` + `takeaway` only. 70% occupancy, ±10% daily variance, realistic hour-weighted distribution. Menu: 5 items weighted by popularity. Payments: cash 40% / card 35% / momo 25%.
 
 **Firestore quota hit** during `resetJuneData.js` run (RESOURCE_EXHAUSTED on first collection scan). Scripts are ready; must run after 14:00 Vietnam time when quota resets.
+
+---
+
+### 2026-06-25 (session 2 — ops fixes + recipe management)
+
+**FOH operational fixes**
+
+- **Recall to Kitchen button**: orders stuck in `in_kitchen` with no queue entries now show a `🔔 Recall to Kitchen` button. Duplicate-safe — warns if active queue entries already exist.
+- **Add More Items**: after a served order, adding more items now sends only the *new* items to `kitchen_queue` (not all items). Full merged total still saved to the order for billing.
+- **Delete Reservation**: added Delete button per reservation row with confirm dialog.
+- **Reservation auto-complete**: when staff marks a table clean after payment, any linked confirmed reservation is automatically marked `completed` and its table assignment cleared.
+
+**Recipe management (BOH → new Recipes tab)**
+
+- Full CRUD for dishes and ingredients stored in new Firestore `menu_items` collection.
+- Auto-seeds from hardcoded `MENU_ITEMS` on first load if collection is empty.
+- Each dish card shows: selling price (inline editable), estimated cost, profit margin %.
+- Ingredients: add/edit (qty per serving + cost/unit) / delete per row.
+- Editing an ingredient's cost/unit writes to the `inventory` document's `unit_cost` field.
+- New dishes created in BOH appear immediately in FOH order picker (live `onSnapshot`).
+
+**Inventory — cost per unit**
+
+- Added `unit_cost` column to BOH Inventory tab (editable, Save persists to Firestore).
+- Auto-seeds realistic VND costs on first load if no items have `unit_cost`:
+  chicken 90k, beef 220k, shrimp 180k, rice 22k, basil 40k, coconut milk 35k.
+
+**Inventory deduction on order**
+
+- `handleSendToKitchen`: deducts all recipe ingredients atomically in the same batch as kitchen queue creation.
+- `handleAddMoreItems`: deducts only newly added items' ingredients.
+- FOH order picker: dishes whose ingredient stock < 1 serving qty are shown grayed out with "Out of stock / Hết nguyên liệu" — +/− buttons disabled.
+
+**Role simplification**
+
+- `admin` and `manager` are now identical permission tiers.
+- Staff can access: FOH, BOH, Guest Management, Insights, Settings.
+- Dashboard and AI Consultant are manager/admin only (UI hidden + route guard redirects to `/foh`).
+- Firestore rules updated: all operational collections allow write by any `isSignedIn()` user; `consultant_conversations` restricted to `isManagerOrAdmin()`.
+
+**Firestore rules**
+
+- Added `menu_items` collection rule (was missing — caused "loading forever" + "error saving" on Recipes tab).

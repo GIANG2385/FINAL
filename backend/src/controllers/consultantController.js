@@ -1,4 +1,4 @@
-import { db } from '../firebaseAdmin.js'
+// src/controllers/consultantController.js
 import { supabase } from '../supabaseClient.js'
 import { getChatCompletion } from '../services/cohereClient.js'
 import { getHistoricalBaseline } from '../services/historicalBaseline.js'
@@ -16,7 +16,7 @@ function toDate(value) {
   return value.toDate ? value.toDate() : new Date(value)
 }
 
-// Static representative data for collections not yet in Firestore.
+// Static representative data for collections not yet tracked dynamically.
 // Mirrors the sample data shown in the frontend UI (BackOfHouse.jsx).
 const STATIC_SUPPLIERS = [
   { name: 'Chị Lan — Chợ Hôm', reliability: 95, nextShortfall: 'Thịt bò (~1.5 ngày)' },
@@ -65,9 +65,8 @@ async function buildDataSnapshot() {
   const vsTypical = typicalToday > 0 ? Math.round(((revenue - typicalToday) / typicalToday) * 100) : null
 
   // ── Inventory ─────────────────────────────────────────────────────────────
-  const inventorySnap = await db.collection('inventory').get()
-  const inventory = inventorySnap.docs.map((d) => {
-    const item = d.data()
+  const { data: inventoryRows = [] } = await supabase.from('inventory').select('*')
+  const inventory = inventoryRows.map((item) => {
     const hourlyConsumption = (item.avg_daily_consumption || 0) / 24
     const hoursRemaining = hourlyConsumption > 0 ? item.current_stock / hourlyConsumption : null
     return {
@@ -81,40 +80,33 @@ async function buildDataSnapshot() {
   })
 
   // ── Tables ────────────────────────────────────────────────────────────────
-  const tablesSnap = await db.collection('tables').get()
-  const tables = tablesSnap.docs.map((d) => {
-    const t = d.data()
-    return { id: t.table_id, status: t.status }
-  })
+  const { data: tablesRows = [] } = await supabase.from('tables').select('table_id, status')
+  const tables = tablesRows.map((t) => ({ id: t.table_id, status: t.status }))
   const occupiedCount = tables.filter((t) => t.status === 'dining' || t.status === 'reserved').length
 
   // ── Kitchen queue (active orders) ─────────────────────────────────────────
-  const queueSnap = await db.collection('kitchen_queue').get()
-  const queueItems = queueSnap.docs.map((d) => d.data())
-  const pendingCount = queueItems.filter((q) => q.status === 'pending').length
-  const inKitchenItems = queueItems.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
+  const { data: queueRows = [] } = await supabase.from('kitchen_queue').select('*')
+  const pendingCount = queueRows.filter((q) => q.status === 'pending').length
+  const inKitchenItems = queueRows.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
   const delayedCount = inKitchenItems.filter((q) => {
     const queuedAt = toDate(q.queued_at)
     return queuedAt && (now - queuedAt) / 60000 > 20
   }).length
 
   // ── Staff shifts ──────────────────────────────────────────────────────────
-  const shiftsSnap = await db.collection('staff_shifts').get()
-  const allShifts = shiftsSnap.docs.map((d) => d.data())
-  const onShiftNow = allShifts.filter((s) => {
+  const { data: shiftsRows = [] } = await supabase.from('staff_shifts').select('shift_start, shift_end')
+  const onShiftNow = shiftsRows.filter((s) => {
     const start = toDate(s.shift_start)
     const end = toDate(s.shift_end)
     return start && end && start <= now && now <= end
   })
 
   // ── Reservations (today) ──────────────────────────────────────────────────
-  const reservationsSnap = await db.collection('reservations').get()
-  const todayReservations = reservationsSnap.docs
-    .map((d) => d.data())
-    .filter((r) => {
-      const t = toDate(r.reservation_time)
-      return t && t >= today
-    })
+  const { data: allReservations = [] } = await supabase.from('reservations').select('*')
+  const todayReservations = allReservations.filter((r) => {
+    const t = toDate(r.reservation_time)
+    return t && t >= today
+  })
   const confirmedToday = todayReservations.filter((r) => r.status === 'confirmed')
   const nextArrival = confirmedToday
     .map((r) => toDate(r.reservation_time))
@@ -122,10 +114,8 @@ async function buildDataSnapshot() {
     .sort((a, b) => a - b)[0]
 
   // ── Loyalty (derived from all reservations) ───────────────────────────────
-  const allReservationsSnap = await db.collection('reservations').get()
   const guestVisits = {}
-  for (const doc of allReservationsSnap.docs) {
-    const r = doc.data()
+  for (const r of allReservations) {
     if (r.status === 'cancelled') continue
     guestVisits[r.guest_name] = (guestVisits[r.guest_name] || 0) + 1
   }
@@ -133,12 +123,12 @@ async function buildDataSnapshot() {
   const totalMembers = repeatGuests.length
   // "at risk" = guests with exactly 1–3 visits in last month — approximate with visit count
   const atRiskCount = repeatGuests.filter((v) => v < 4).length
-  const avgVisitsPerMonth = totalMembers > 0 ? Math.round(repeatGuests.reduce((s, v) => s + v, 0) / totalMembers) : 0
+  const avgVisitsPerMonth =
+    totalMembers > 0 ? Math.round(repeatGuests.reduce((s, v) => s + v, 0) / totalMembers) : 0
 
   // ── Insights ──────────────────────────────────────────────────────────────
-  const insightsSnap = await db.collection('insights').get()
-  const activeInsights = insightsSnap.docs
-    .map((d) => d.data())
+  const { data: insightRows = [] } = await supabase.from('insights').select('status, summary_en')
+  const activeInsights = insightRows
     .filter((i) => i.status !== 'acted_on')
     .map((i) => i.summary_en)
 
@@ -168,7 +158,7 @@ async function buildDataSnapshot() {
     },
     staff: {
       onShiftNow: onShiftNow.length,
-      scheduledToday: allShifts.length,
+      scheduledToday: shiftsRows.length,
     },
     reservations: {
       todayCount: todayReservations.length,
@@ -202,7 +192,7 @@ async function buildDataSnapshot() {
     '',
     `KITCHEN QUEUE: ${pendingCount} pending, ${inKitchenItems.length} in kitchen, ${delayedCount} delayed (>20 min).`,
     '',
-    `STAFF: ${onShiftNow.length} on shift now out of ${allShifts.length} scheduled today.`,
+    `STAFF: ${onShiftNow.length} on shift now out of ${shiftsRows.length} scheduled today.`,
     '',
     `RESERVATIONS: ${todayReservations.length} today (${confirmedToday.length} confirmed). Next arrival: ${
       nextArrival ? nextArrival.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'none'
@@ -233,20 +223,12 @@ async function buildDataSnapshot() {
 }
 
 export async function clearMessages(req, res) {
-  const messagesRef = db.collection('consultant_conversations').doc(req.user.uid).collection('messages')
-  const snap = await messagesRef.get()
-  if (snap.empty) return res.json({ deleted: 0 })
-  // Firestore batch limit is 500 writes
-  const BATCH_SIZE = 500
-  let deleted = 0
-  const docs = snap.docs
-  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-    const batch = db.batch()
-    docs.slice(i, i + BATCH_SIZE).forEach((d) => batch.delete(d.ref))
-    await batch.commit()
-    deleted += Math.min(BATCH_SIZE, docs.length - i)
-  }
-  res.json({ deleted })
+  const { error } = await supabase
+    .from('consultant_messages')
+    .delete()
+    .eq('user_id', req.user.uid)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ deleted: true })
 }
 
 export async function sendMessage(req, res) {
@@ -255,21 +237,35 @@ export async function sendMessage(req, res) {
     return res.status(400).json({ error: 'message is required' })
   }
 
-  const userDoc = await db.collection('users').doc(req.user.uid).get()
-  const role = userDoc.exists ? userDoc.data().role : null
+  // Check user role from Supabase users table
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('uid', req.user.uid)
+    .single()
+  const role = userRow?.role ?? null
   if (!['manager', 'admin'].includes(role)) {
     return res.status(403).json({ error: 'Only manager/admin can use the AI Consultant' })
   }
 
-  const messagesRef = db.collection('consultant_conversations').doc(req.user.uid).collection('messages')
+  // Save user message
+  const { error: saveErr } = await supabase.from('consultant_messages').insert({
+    id: crypto.randomUUID(),
+    user_id: req.user.uid,
+    role: 'user',
+    content: message,
+    created_at: new Date().toISOString(),
+  })
+  if (saveErr) return res.status(500).json({ error: saveErr.message })
 
-  await messagesRef.add({ role: 'user', content: message, created_at: new Date() })
-
-  const historySnap = await messagesRef.orderBy('created_at', 'desc').limit(HISTORY_LIMIT).get()
-  const history = historySnap.docs
-    .map((d) => d.data())
-    .reverse()
-    .map((m) => ({ role: m.role, content: m.content }))
+  // Fetch recent history
+  const { data: historyRows } = await supabase
+    .from('consultant_messages')
+    .select('role, content')
+    .eq('user_id', req.user.uid)
+    .order('created_at', { ascending: false })
+    .limit(HISTORY_LIMIT)
+  const history = (historyRows || []).reverse().map((m) => ({ role: m.role, content: m.content }))
 
   let snapshot
   try {
@@ -292,7 +288,15 @@ export async function sendMessage(req, res) {
     return res.status(502).json({ error: 'AI Consultant is temporarily unavailable' })
   }
 
-  await messagesRef.add({ role: 'assistant', content: reply, created_at: new Date() })
+  // Save assistant reply
+  const { error: replyErr } = await supabase.from('consultant_messages').insert({
+    id: crypto.randomUUID(),
+    user_id: req.user.uid,
+    role: 'assistant',
+    content: reply,
+    created_at: new Date().toISOString(),
+  })
+  if (replyErr) console.error('failed to save assistant reply:', replyErr.message)
 
   res.json({ reply })
 }

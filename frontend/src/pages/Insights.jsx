@@ -18,6 +18,9 @@ export default function Insights() {
   const [actionError, setActionError] = useState(null)
 
   useEffect(() => {
+    // Trigger backend analysis so alerts are fresh on page load
+    api.post('/api/insights/run').catch(() => {})
+
     // Initial fetch
     supabase.from('insights').select('*').then(({ data }) => {
       const list = data || []

@@ -243,7 +243,7 @@ export default function FrontOfHouse() {
   }, [invMap, activeMenu])
 
   if (tables === null || orders === null) {
-    return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
+    return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: '#888', fontSize: '14px' }}>{t('common.loading')}</span></div>
   }
 
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0)
@@ -582,10 +582,11 @@ export default function FrontOfHouse() {
   const allUpcoming = upcoming
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--pp-text)', marginBottom: '16px' }}>
-        {t('nav.frontOfHouse')}
-      </h1>
+    <div style={{ padding: '24px 28px' }}>
+      <div style={{ marginBottom: '18px' }}>
+        <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Table Management</h1>
+        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Floor operations · orders · reservations</p>
+      </div>
 
       {spikeAlert && (
         <div style={{

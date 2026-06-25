@@ -310,10 +310,11 @@ export default function BackOfHouse() {
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--pp-text)', marginBottom: '16px' }}>
-        {t('nav.backOfHouse')}
-      </h1>
+    <div style={{ padding: '24px 28px' }}>
+      <div style={{ marginBottom: '18px' }}>
+        <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Stock Control</h1>
+        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Inventory · recipes · labor · supply chain</p>
+      </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--pp-border)', marginBottom: '24px' }}>
         {tabs.map((tab) => (

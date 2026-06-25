@@ -143,18 +143,18 @@ export default function Consultant() {
   const lastAssistantMsg = messages?.filter((m) => m.role === 'assistant').slice(-1)[0]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px)', padding: '24px 32px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, padding: '24px 28px', minHeight: 0 }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, margin: '0 0 2px' }}>{t('consultant.title')}</h1>
-          {messages !== null && messages.length > 0 && (
-            <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{t('consultant.messageCount', { count: messages.length })}</p>
-          )}
+          <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>{t('consultant.title')}</h1>
+          <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>
+            {messages !== null && messages.length > 0 ? t('consultant.messageCount', { count: messages.length }) : 'Ask anything about today\'s operations'}
+          </p>
         </div>
         {messages !== null && messages.length > 0 && (
-          <button onClick={handleClear} disabled={clearing} style={{ border: '1px solid var(--pp-border)', background: 'white', borderRadius: '99px', padding: '6px 14px', fontSize: '12px', color: 'var(--pp-text-muted)', cursor: 'pointer', opacity: clearing ? 0.5 : 1 }}>
+          <button onClick={handleClear} disabled={clearing} style={{ border: '1px solid #E5E5EA', background: 'white', borderRadius: '99px', padding: '6px 14px', fontSize: '12px', color: '#888', cursor: 'pointer', opacity: clearing ? 0.5 : 1 }}>
             {clearing ? '…' : t('consultant.clearChat')}
           </button>
         )}

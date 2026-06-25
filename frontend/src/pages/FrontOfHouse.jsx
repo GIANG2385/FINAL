@@ -413,7 +413,18 @@ export default function FrontOfHouse() {
   async function handleMarkClean(tableId) {
     setBusy(true); setError(null)
     try {
-      await updateDoc(doc(db, 'tables', tableId), { status: 'open', seated_at: null })
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'tables', tableId), { status: 'open', seated_at: null })
+
+      // Complete any confirmed reservation tied to this table
+      const linkedRes = (reservations || []).find(
+        (r) => r.table_id === tableId && r.status === 'confirmed'
+      )
+      if (linkedRes) {
+        batch.update(doc(db, 'reservations', linkedRes.id), { status: 'completed', table_id: null })
+      }
+
+      await batch.commit()
       setSelectedTable(null)
       setPaymentConfirmation(null)
     } catch (e) {

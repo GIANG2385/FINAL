@@ -1,4 +1,5 @@
 import { db } from '../firebaseAdmin.js'
+import { supabase } from '../supabaseClient.js'
 import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
 // Profit snapshot — rule-based estimate, not real cost accounting.
@@ -31,15 +32,14 @@ export async function getProfitSummary(req, res) {
   const range = ['day', 'week', 'month'].includes(req.query.range) ? req.query.range : 'day'
   const cutoff = startOfRange(range)
 
-  // Range-filtered server-side (not status-filtered, to avoid needing a
-  // composite index) — the orders collection holds 10,000+ historical rows,
-  // so an unfiltered full-collection scan here would be extremely costly.
-  const ordersSnap = await db.collection('orders').where('served_at', '>=', cutoff).get()
-  const revenue = ordersSnap.docs.reduce((sum, doc) => {
-    const order = doc.data()
-    if (order.status !== 'served') return sum
-    return sum + (order.total_amount || 0)
-  }, 0)
+  const { data: orders, error: ordersErr } = await supabase
+    .from('orders')
+    .select('total_amount, status')
+    .eq('status', 'served')
+    .gte('served_at', cutoff.toISOString())
+  if (ordersErr) throw new Error(ordersErr.message)
+
+  const revenue = orders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
 
   // Historical daily average (from pre-today data) scaled to this range's
   // length, so the live figure can be compared against a real benchmark

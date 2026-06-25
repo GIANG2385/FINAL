@@ -4,6 +4,7 @@
 // Re-run this manually if more historical data is loaded later.
 import 'dotenv/config'
 import { db } from '../firebaseAdmin.js'
+import { supabase } from '../supabaseClient.js'
 
 function startOfToday() {
   const d = new Date()
@@ -12,10 +13,12 @@ function startOfToday() {
 }
 
 const cutoff = startOfToday()
-const ordersSnap = await db
-  .collection('orders')
-  .where('served_at', '<', cutoff)
-  .get()
+const { data: allOrders, error } = await supabase
+  .from('orders')
+  .select('served_at, total_amount, status')
+  .eq('status', 'served')
+  .lt('served_at', cutoff.toISOString())
+if (error) { console.error(error.message); process.exit(1) }
 
 const dayRevenue = new Map()
 const dayCountByWeekday = new Map()
@@ -23,10 +26,9 @@ const weekdayRevenue = new Map()
 const hourRevenue = new Map()
 const hourDayCount = new Map()
 
-for (const doc of ordersSnap.docs) {
-  const order = doc.data()
+for (const order of allOrders) {
   if (order.status !== 'served') continue
-  const servedAt = order.served_at?.toDate ? order.served_at.toDate() : new Date(order.served_at)
+  const servedAt = new Date(order.served_at)
 
   const dateKey = servedAt.toDateString()
   const weekday = servedAt.getDay()
@@ -64,6 +66,6 @@ for (let h = 0; h < 24; h++) {
 const baseline = { distinctDays, avgDailyRevenue, byWeekday, byHour, computed_at: new Date() }
 
 await db.collection('analytics').doc('historical_baseline').set(baseline)
-console.log(`Computed baseline from ${ordersSnap.size} historical orders across ${distinctDays} days.`)
+console.log(`Computed baseline from ${allOrders.length} historical orders across ${distinctDays} days.`)
 console.log('avgDailyRevenue:', avgDailyRevenue)
 process.exit(0)

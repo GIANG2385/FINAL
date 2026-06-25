@@ -1,4 +1,5 @@
 import { db } from '../firebaseAdmin.js'
+import { supabase } from '../supabaseClient.js'
 import { forecastStockout, forecastKitchenOverload } from '../services/riskForecast.js'
 import { analyzeRootCause } from '../services/rootCauseEngine.js'
 import { recommendationFor } from '../services/recommendationEngine.js'
@@ -68,19 +69,15 @@ export async function runAnalysisInternal() {
   }
 
   // --- Root cause: revenue in the last 2h vs the historical baseline for this time of day ---
-  // Server-side range filter (not status-filtered, to avoid needing a
-  // composite index) — orders now holds 10,000+ historical rows. This runs
-  // every 60s via the scheduler, so an unfiltered full-collection scan here
-  // would exhaust the Firestore read quota within minutes.
   const now = Date.now()
   const recentCutoff = new Date(now - 120 * 60000)
-  const recentOrdersSnap = await db.collection('orders').where('served_at', '>=', recentCutoff).get()
-  let recentRevenue = 0
-  for (const doc of recentOrdersSnap.docs) {
-    const order = doc.data()
-    if (order.status !== 'served') continue
-    recentRevenue += order.total_amount || 0
-  }
+  const { data: recentOrders, error: recentErr } = await supabase
+    .from('orders')
+    .select('total_amount')
+    .eq('status', 'served')
+    .gte('served_at', recentCutoff.toISOString())
+  if (recentErr) throw new Error(recentErr.message)
+  const recentRevenue = recentOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
 
   const baseline = await getHistoricalBaseline()
   const baselineRevenue = typicalRevenueForWindow(baseline, new Date(now).getHours() - 1, 2)

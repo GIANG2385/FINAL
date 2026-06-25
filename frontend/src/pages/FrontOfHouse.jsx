@@ -258,6 +258,7 @@ export default function FrontOfHouse() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, amount }),
       })
+      if (!res.ok) throw new Error(`Payment service error: ${res.status}`)
       const data = await res.json()
       if (!data.paymentUrl) throw new Error('No payment URL returned')
       setVnpayModal({ orderId, amount, paymentUrl: data.paymentUrl })

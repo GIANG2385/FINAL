@@ -42,10 +42,10 @@ export default function VnpayReturn() {
               Please try again or use a different payment method.
             </p>
             <button
-              onClick={() => window.close()}
+              onClick={() => navigate('/')}
               style={{ background: '#6B7280', color: 'white', border: 'none', borderRadius: '99px', padding: '12px 28px', fontWeight: 700, fontSize: '15px', cursor: 'pointer' }}
             >
-              Close
+              Back to Home
             </button>
           </>
         )}

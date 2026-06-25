@@ -41,24 +41,34 @@ export default function Consultant() {
 
   const quickPrompts = t('consultant.quickPrompts', { returnObjects: true })
 
-  useEffect(() => {
-    if (!user) return
-    const uid = auth.currentUser?.uid
-    if (!uid) return
+  const uidRef = useRef(null)
 
+  const refreshMessages = (uid) => {
     supabase.from('consultant_messages')
       .select('*')
       .eq('user_id', uid)
       .order('created_at', { ascending: true })
       .then(({ data }) => setMessages(data || []))
+  }
 
-    const channel = supabase.channel('consultant-messages')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'consultant_messages' }, () => {
-        supabase.from('consultant_messages')
-          .select('*')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: true })
-          .then(({ data }) => setMessages(data || []))
+  useEffect(() => {
+    if (!user) return
+    const uid = auth.currentUser?.uid
+    if (!uid) return
+    uidRef.current = uid
+
+    refreshMessages(uid)
+
+    const channel = supabase.channel(`consultant-${uid}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'consultant_messages',
+        filter: `user_id=eq.${uid}`,
+      }, (payload) => {
+        setMessages((prev) => {
+          if (!prev) return [payload.new]
+          if (prev.find((m) => m.id === payload.new.id)) return prev
+          return [...prev, payload.new]
+        })
       })
       .subscribe()
 
@@ -74,9 +84,25 @@ export default function Consultant() {
   async function send(text) {
     if (!text.trim() || sending) return
     setSending(true); setError(null); setInput('')
-    try { await api.post('/api/consultant/messages', { message: text }) }
-    catch { setError(t('consultant.error')) }
-    finally { setSending(false); inputRef.current?.focus() }
+
+    // Optimistically add user message so it appears immediately
+    const optimisticId = `opt-${Date.now()}`
+    setMessages((prev) => [...(prev || []), {
+      id: optimisticId, role: 'user', content: text,
+      created_at: new Date().toISOString(), user_id: uidRef.current,
+    }])
+
+    try {
+      await api.post('/api/consultant/messages', { message: text })
+      // Guaranteed refresh after API responds to get the real IDs + assistant reply
+      if (uidRef.current) refreshMessages(uidRef.current)
+    } catch {
+      setError(t('consultant.error'))
+      // Remove optimistic message on failure
+      setMessages((prev) => prev?.filter((m) => m.id !== optimisticId) ?? [])
+    } finally {
+      setSending(false); inputRef.current?.focus()
+    }
   }
 
   async function handleRegenerate() {
@@ -87,7 +113,10 @@ export default function Consultant() {
   async function handleClear() {
     if (!window.confirm(t('consultant.clearConfirm'))) return
     setClearing(true)
-    try { await api.delete('/api/consultant/messages') }
+    try {
+      await api.delete('/api/consultant/messages')
+      setMessages([])
+    }
     catch { setError(t('common.error')) }
     finally { setClearing(false) }
   }

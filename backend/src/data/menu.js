@@ -1,12 +1,47 @@
-// MVP menu — mirrors the items used by backend/src/scripts/seed.js.
-// Each menu item consumes one inventory ingredient, so order creation can
-// decrement real stock (see §11 acceptance checklist).
+// src/data/menu.js
+// SKUs match the Supabase historical orders (MENU-* prefix).
+// ingredient_sku references the inventory.sku column for stock decrements.
 export const MENU_ITEMS = [
-  { sku: 'M-PAD-THAI', name_en: 'Pad Thai', name_vi: 'Pad Thái', unit_price: 95000, ingredient_sku: 'TH-SHRIMP-01', ingredient_qty: 0.15 },
-  { sku: 'M-GREEN-CURRY', name_en: 'Green Curry', name_vi: 'Cà ri xanh', unit_price: 120000, ingredient_sku: 'TH-CHK-01', ingredient_qty: 0.2 },
-  { sku: 'M-TOM-YUM', name_en: 'Tom Yum Soup', name_vi: 'Súp Tom Yum', unit_price: 85000, ingredient_sku: 'TH-SHRIMP-01', ingredient_qty: 0.1 },
-  { sku: 'M-MANGO-STICKY', name_en: 'Mango Sticky Rice', name_vi: 'Xôi xoài', unit_price: 60000, ingredient_sku: 'TH-RICE-01', ingredient_qty: 0.15 },
-  { sku: 'M-SPRING-ROLL', name_en: 'Spring Rolls', name_vi: 'Chả giò', unit_price: 50000, ingredient_sku: 'TH-BASIL-01', ingredient_qty: 0.05 },
+  {
+    sku: 'MENU-BEEFBASIL',
+    name_en: 'Basil Beef',
+    name_vi: 'Bò xào húng quế',
+    unit_price: 110000,
+    ingredient_sku: 'INV-BEEF-01',
+    ingredient_qty: 0.15,
+  },
+  {
+    sku: 'MENU-CHICKENCURRY',
+    name_en: 'Green Curry Chicken',
+    name_vi: 'Cà ri xanh gà',
+    unit_price: 105000,
+    ingredient_sku: 'INV-CHK-01',
+    ingredient_qty: 0.2,
+  },
+  {
+    sku: 'MENU-TOMYUM',
+    name_en: 'Tom Yum Soup',
+    name_vi: 'Canh Tom Yum',
+    unit_price: 120000,
+    ingredient_sku: 'INV-SHRIMP-01',
+    ingredient_qty: 0.1,
+  },
+  {
+    sku: 'MENU-PADTHAI',
+    name_en: 'Pad Thai Shrimp',
+    name_vi: 'Pad Thai tôm',
+    unit_price: 95000,
+    ingredient_sku: 'INV-SHRIMP-01',
+    ingredient_qty: 0.15,
+  },
+  {
+    sku: 'MENU-MANGORICE',
+    name_en: 'Mango Sticky Rice',
+    name_vi: 'Xôi xoài',
+    unit_price: 65000,
+    ingredient_sku: 'INV-RICE-01',
+    ingredient_qty: 0.15,
+  },
 ]
 
 export function findMenuItem(sku) {

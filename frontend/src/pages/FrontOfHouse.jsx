@@ -33,13 +33,16 @@ const AVG_OCCUPIED_MIN = 60  // avg dining time 60 min (1 hr turn)
 const tabBtn = (active) => ({
   padding: '10px 20px',
   border: 'none',
-  borderBottom: active ? '2px solid var(--pp-primary)' : '2px solid transparent',
+  borderBottom: active ? '3px solid var(--pp-primary)' : '3px solid transparent',
+  marginBottom: '-1px',
   background: 'transparent',
   color: active ? 'var(--pp-primary)' : 'var(--pp-text-muted)',
-  fontWeight: active ? 700 : 400,
-  fontSize: '14px',
+  fontWeight: active ? 700 : 500,
+  fontSize: '13px',
+  letterSpacing: '0.03em',
   cursor: 'pointer',
   transition: 'all 0.15s',
+  whiteSpace: 'nowrap',
 })
 
 export default function FrontOfHouse() {
@@ -916,23 +919,33 @@ export default function FrontOfHouse() {
           {kitchenQueue === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px', alignItems: 'start' }}>
               {[
-                { label: t('boh.kanban.pending'),   items: pendingQ,   border: '#CBD5E1', headerBg: '#F1F5F9', headerColor: '#374151' },
-                { label: t('boh.kanban.inKitchen'), items: inKitchenQ, border: '#FCD34D', headerBg: '#FFFBEB', headerColor: '#92400E' },
-                { label: t('boh.kanban.completed'), items: completedQ, border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
+                { label: t('boh.kanban.pending'),   items: pendingQ,   dot: '#F59E0B', border: '#FCD34D', headerBg: '#FFFBEB', headerColor: '#92400E' },
+                { label: t('boh.kanban.inKitchen'), items: inKitchenQ, dot: '#6366F1', border: '#A5B4FC', headerBg: '#EEF2FF', headerColor: '#3730A3' },
+                { label: t('boh.kanban.completed'), items: completedQ, dot: '#22C55E', border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
               ].map((col) => (
-                <div key={col.label} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
-                  <div style={{ background: col.headerBg, color: col.headerColor, padding: '10px 14px', fontWeight: 700, fontSize: '13px', borderBottom: `2px solid ${col.border}` }}>
-                    {col.label} ({col.items.length})
+                <div key={col.label} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden', minHeight: '200px', display: 'flex', flexDirection: 'column' }}>
+                  {/* Fix 6+7: nowrap + colored dot */}
+                  <div style={{ background: col.headerBg, color: col.headerColor, padding: '10px 14px', fontWeight: 700, fontSize: '13px', borderBottom: `2px solid ${col.border}`, display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />
+                    {col.label} <span style={{ fontWeight: 400, opacity: 0.7, marginLeft: '2px' }}>({col.items.length})</span>
                   </div>
-                  <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px' }}>
+                  <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
                     {col.items.map((q) => {
                       const queuedAt = toDate(q.queued_at)
                       const elapsed = queuedAt ? Math.round((Date.now() - queuedAt.getTime()) / 60000) : 0
-                      const delayColor = elapsed > 20 ? 'var(--pp-danger-text)' : elapsed > 10 ? '#D97706' : 'var(--pp-success-text)'
+                      // Fix 5: time color + icon based on urgency
+                      const isOverdue = elapsed > 20
+                      const isWarning = elapsed > 10 && elapsed <= 20
+                      const timeColor = isOverdue ? 'var(--pp-danger-text)' : isWarning ? '#D97706' : 'var(--pp-success-text)'
+                      const timeIcon = isOverdue ? '⚠' : '⏱'
                       return (
-                        <div key={q.queue_id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
+                        <div key={q.queue_id} style={{
+                          background: 'white', border: `1px solid ${isOverdue ? 'var(--pp-danger-border)' : 'var(--pp-border)'}`,
+                          borderRadius: '8px', padding: '10px',
+                          animation: isOverdue ? 'pulse-danger 2s infinite' : 'none',
+                        }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                             <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
                               {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_name || q.item_sku) : (q.item_name_en || q.item_name || q.item_sku)}
@@ -943,7 +956,10 @@ export default function FrontOfHouse() {
                               </span>
                             )}
                           </div>
-                          <p style={{ fontSize: '12px', fontWeight: 500, color: delayColor, margin: 0 }}>⏱ {elapsed} {i18n.language === 'vi' ? 'phút' : 'min'}</p>
+                          {/* Fix 5: time with icon and urgency color */}
+                          <p style={{ fontSize: '12px', fontWeight: isWarning || isOverdue ? 700 : 500, color: timeColor, margin: 0 }}>
+                            {timeIcon} {elapsed} {i18n.language === 'vi' ? 'phút' : 'min'}
+                          </p>
                           {(q.status === 'pending' || q.status === 'in_progress') && (
                             <button
                               onClick={() => handleAdvanceQueueItem(q)}
@@ -952,9 +968,11 @@ export default function FrontOfHouse() {
                                 padding: '5px 0', borderRadius: '6px', cursor: 'pointer', border: 'none',
                                 background: q.status === 'pending' ? 'var(--pp-warning-bg)' : 'var(--pp-success-bg)',
                                 color: q.status === 'pending' ? 'var(--pp-warning-text)' : 'var(--pp-success-text)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
                               }}
                             >
-                              {q.status === 'pending' ? t('boh.kanban.startCooking') : t('boh.kanban.markReady')}
+                              {/* Fix 10: arrow on advance button */}
+                              {q.status === 'pending' ? t('boh.kanban.startCooking') : t('boh.kanban.markReady')} →
                             </button>
                           )}
                         </div>

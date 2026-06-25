@@ -13,21 +13,22 @@ import VnpayReturn from './pages/VnpayReturn'
 import { useAuth } from './context/AuthContext'
 
 const navLinkStyle = ({ isActive }) => ({
-  padding: '6px 12px',
+  padding: '0 12px',
   border: 'none',
   background: 'transparent',
-  fontSize: '14px',
+  fontSize: '13px',
   fontWeight: isActive ? 700 : 400,
   color: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-  borderBottom: isActive ? '2px solid #E8002A' : '2px solid transparent',
+  borderBottom: isActive ? '3px solid #E8002A' : '3px solid transparent',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
   transition: 'all 0.15s ease',
   textDecoration: 'none',
-  display: 'inline-block',
-  lineHeight: '52px',
+  display: 'inline-flex',
+  alignItems: 'center',
   height: '52px',
   boxSizing: 'border-box',
+  letterSpacing: isActive ? '0.01em' : 'normal',
 })
 
 export default function App() {
@@ -54,9 +55,10 @@ export default function App() {
         zIndex: 100,
         overflowX: 'auto',
       }}>
-        <span style={{ color: 'white', fontWeight: 700, fontSize: '15px', marginRight: '12px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-          {t('app.name')}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', marginRight: '16px', flexShrink: 0, lineHeight: 1 }}>
+          <span style={{ color: '#E8002A', fontWeight: 900, fontSize: '15px', letterSpacing: '-0.02em' }}>Pang Pang</span>
+          <span style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 600, fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '1px' }}>SmartOps AI</span>
+        </div>
 
         {role && ['manager', 'admin'].includes(role) && (
           <NavLink to="/" end style={navLinkStyle}>{t('nav.dashboard')}</NavLink>
@@ -88,10 +90,22 @@ export default function App() {
           </button>
           {user ? (
             <>
-              {role && <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: '13px' }}>{role}</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden',
+                  border: '2px solid rgba(232,0,42,0.5)', flexShrink: 0,
+                }}>
+                  <img
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.email?.split('@')[0] || 'U')}&background=E8002A&color=fff&size=60`}
+                    alt="avatar"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: '12px', maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</span>
+              </div>
               <button
                 onClick={handleLogout}
-                style={{ color: 'rgba(255,255,255,0.55)', background: 'transparent', border: 'none', fontSize: '13px', cursor: 'pointer' }}
+                style={{ color: 'rgba(255,255,255,0.45)', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '99px', padding: '3px 10px', fontSize: '12px', cursor: 'pointer' }}
               >
                 {t('auth.logout')}
               </button>

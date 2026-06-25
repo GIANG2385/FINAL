@@ -73,3 +73,8 @@ body {
   0%, 80%, 100% { transform: scale(0); }
   40%           { transform: scale(1); }
 }
+
+@keyframes pulse-danger {
+  0%, 100% { border-color: var(--pp-danger-border); }
+  50%       { border-color: var(--pp-danger-text); box-shadow: 0 0 0 2px rgba(232,0,42,0.12); }
+}

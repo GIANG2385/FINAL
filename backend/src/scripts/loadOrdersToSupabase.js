@@ -16,7 +16,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-const filePath = resolve(__dirname, '../../../../pangpang_june_orders.json')
+const filePath = resolve(__dirname, '../../../pangpang_june_orders.json')
 const orders = JSON.parse(readFileSync(filePath, 'utf8'))
 console.log(`Loaded ${orders.length} orders from JSON`)
 

@@ -62,8 +62,8 @@ export default function Consultant() {
     const channel = supabase.channel(`consultant-${uid}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'consultant_messages',
-        filter: `user_id=eq.${uid}`,
       }, (payload) => {
+        if (payload.new?.user_id !== uid) return
         setMessages((prev) => {
           if (!prev) return [payload.new]
           if (prev.find((m) => m.id === payload.new.id)) return prev

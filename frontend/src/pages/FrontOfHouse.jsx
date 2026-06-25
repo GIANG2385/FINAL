@@ -63,6 +63,8 @@ export default function FrontOfHouse() {
   const [form, setForm] = useState({ name: '', partySize: 2, time: '18:00' })
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState(null)
+  const [editingNoteId, setEditingNoteId] = useState(null)
+  const [noteInput, setNoteInput] = useState('')
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -234,6 +236,24 @@ export default function FrontOfHouse() {
       console.error(e)
       setError(t('common.error'))
     } finally { setBusy(false) }
+  }
+
+  async function handleAssignTable(reservationId, tableId) {
+    try {
+      await updateDoc(doc(db, 'reservations', reservationId), { table_id: tableId || null })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function handleSaveNote(reservationId) {
+    try {
+      await updateDoc(doc(db, 'reservations', reservationId), { note: noteInput.trim() || null })
+      setEditingNoteId(null)
+      setNoteInput('')
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   async function handleMarkClean(tableId) {
@@ -672,7 +692,14 @@ export default function FrontOfHouse() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead>
                   <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
-                    {[t('guest.guestName'), t('guest.partySize'), t('guest.time'), t('guest.status')].map((h) => (
+                    {[
+                      t('guest.guestName'),
+                      t('guest.partySize'),
+                      t('guest.time'),
+                      t('foh.assignTable'),
+                      i18n.language === 'vi' ? 'Ghi chú' : 'Note',
+                      t('guest.status'),
+                    ].map((h) => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
                     ))}
                   </tr>
@@ -682,7 +709,58 @@ export default function FrontOfHouse() {
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
                       <td style={{ padding: '12px' }}>{r.guest_name}</td>
                       <td style={{ padding: '12px' }}>{r.party_size}</td>
-                      <td style={{ padding: '12px' }}>{r.reservation_time ? formatDateTime(toDate(r.reservation_time), i18n.language) : r.time}</td>
+                      <td style={{ padding: '12px' }}>
+                        {r.reservation_time ? formatDateTime(toDate(r.reservation_time), i18n.language) : r.time}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <select
+                          value={r.table_id || ''}
+                          onChange={(e) => handleAssignTable(r.id, e.target.value)}
+                          style={{ border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px', background: 'white' }}
+                        >
+                          <option value="">{t('foh.noTableAssigned')}</option>
+                          {(tables || [])
+                            .filter((tb) => tb.status === 'open' || tb.table_id === r.table_id)
+                            .map((tb) => (
+                              <option key={tb.table_id} value={tb.table_id}>{tb.table_id}</option>
+                            ))}
+                        </select>
+                      </td>
+                      <td style={{ padding: '12px', minWidth: '160px' }}>
+                        {editingNoteId === r.id ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input
+                              autoFocus
+                              value={noteInput}
+                              onChange={(e) => setNoteInput(e.target.value)}
+                              placeholder={t('foh.notePlaceholder')}
+                              style={{ flex: 1, border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }}
+                            />
+                            <button
+                              onClick={() => handleSaveNote(r.id)}
+                              style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              {t('foh.saveNote')}
+                            </button>
+                            <button
+                              onClick={() => { setEditingNoteId(null); setNoteInput('') }}
+                              style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer' }}
+                            >✕</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: r.note ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
+                              {r.note || '—'}
+                            </span>
+                            <button
+                              onClick={() => { setEditingNoteId(r.id); setNoteInput(r.note || '') }}
+                              style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              {t('foh.addNote')}
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: '12px' }}>
                         <span style={{
                           borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500,

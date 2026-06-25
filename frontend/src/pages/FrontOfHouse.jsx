@@ -572,7 +572,9 @@ export default function FrontOfHouse() {
   const queue = kitchenQueue || []
   const pendingQ   = queue.filter((q) => q.status === 'pending')
   const inKitchenQ = queue.filter((q) => q.status === 'in_progress' || q.status === 'in_kitchen')
-  const completedQ = queue.filter((q) => q.status === 'ready' || q.status === 'completed')
+  const completedQ = queue
+    .filter((q) => q.status === 'ready' || q.status === 'completed')
+    .sort((a, b) => (toDate(a.completed_at)?.getTime() ?? 0) - (toDate(b.completed_at)?.getTime() ?? 0))
 
   // Reservations
   const upcoming = (reservations || []).filter((r) => {

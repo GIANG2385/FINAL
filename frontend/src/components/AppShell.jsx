@@ -3,13 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 
 const NAV_ITEMS = [
-  { label: 'Executive View',    icon: '▦', to: '/',         adminOnly: true  },
-  { label: 'Table Management',  icon: '⊞', to: '/foh',      adminOnly: false },
-  { label: 'Kitchen Ops',       icon: '⚑', to: '/foh',      adminOnly: false },
-  { label: 'Stock Control',     icon: '◫', to: '/boh',      adminOnly: false },
-  { label: 'Guest Management',  icon: '◎', to: '/guests',   adminOnly: false },
-  { label: 'AI Insights',       icon: '✦', to: '/insights', adminOnly: false },
-  { label: 'AI Consultant',     icon: '🤖', to: '/consultant', adminOnly: true },
+  { label: 'Executive View',   icon: '▦', to: '/',           adminOnly: true  },
+  { label: 'Front of House',   icon: '⊞', to: '/foh',        adminOnly: false },
+  { label: 'Back of House',    icon: '◫', to: '/boh',        adminOnly: false },
+  { label: 'Guest Management', icon: '◎', to: '/guests',     adminOnly: false },
+  { label: 'AI Insights',      icon: '✦', to: '/insights',   adminOnly: false },
+  { label: 'AI Consultant',    icon: '🤖', to: '/consultant', adminOnly: true  },
 ]
 
 export default function AppShell({ children }) {

@@ -1,14 +1,15 @@
-import { db } from '../firebaseAdmin.js'
+// src/controllers/inventoryController.js
+import { supabase } from '../supabaseClient.js'
 
 // Consumption velocity + time-to-stockout projection.
 // Rule-based estimate (current_stock / avg_daily_consumption), not ML —
 // see PangPang_SmartOps_AI_Build_Instructions.md §6.
 export async function getForecast(req, res) {
-  const snap = await db.collection('inventory').get()
-  const now = Date.now()
+  const { data: rows, error } = await supabase.from('inventory').select('*')
+  if (error) return res.status(500).json({ error: error.message })
 
-  const forecast = snap.docs.map((doc) => {
-    const item = doc.data()
+  const now = Date.now()
+  const forecast = (rows || []).map((item) => {
     const hourlyConsumption = (item.avg_daily_consumption || 0) / 24
     const hoursRemaining = hourlyConsumption > 0 ? item.current_stock / hourlyConsumption : null
     const stockoutAt = hoursRemaining !== null ? new Date(now + hoursRemaining * 60 * 60 * 1000) : null

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../services/firebase'
 
 function formatVnd(amount, lang) {
@@ -55,11 +55,12 @@ const HOURLY_WAGE_VND = 25000
 
 export default function BackOfHouse() {
   const { t, i18n } = useTranslation()
-  const [activeTab, setActiveTab] = useState('inventory')
+  const [activeTab, setActiveTab] = useState('kitchen')
   const [staffShifts, setStaffShifts] = useState(null)
   const [orders, setOrders] = useState(null)
   const [inventoryRaw, setInventoryRaw] = useState(null)
   const [localStock, setLocalStock] = useState({})
+  const [kitchenQueue, setKitchenQueue] = useState(null)
 
   useEffect(() => {
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
@@ -68,12 +69,15 @@ export default function BackOfHouse() {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
     const todayOrders = query(collection(db, 'orders'), where('created_at', '>=', dayStart))
     const unsubOrders = onSnapshot(todayOrders, (snap) => {
-      setOrders(snap.docs.map((d) => d.data()))
+      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
       setInventoryRaw(snap.docs.map((d) => d.data()))
     })
-    return () => { unsubShifts(); unsubOrders(); unsubInv() }
+    const unsubQueue = onSnapshot(collection(db, 'kitchen_queue'), (snap) => {
+      setKitchenQueue(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    })
+    return () => { unsubShifts(); unsubOrders(); unsubInv(); unsubQueue() }
   }, [])
 
   // Compute profit from Firestore data (same logic as backend profitController)
@@ -107,6 +111,30 @@ export default function BackOfHouse() {
 
   const getStock = (item) => localStock[item.sku] !== undefined ? localStock[item.sku] : (item.current_stock ?? 0)
 
+  async function handleAdvanceQueueItem(queueItem) {
+    const nextStatus = queueItem.status === 'pending' ? 'in_progress' : 'ready'
+    try {
+      await updateDoc(doc(db, 'kitchen_queue', queueItem.id), { status: nextStatus })
+
+      if (nextStatus === 'ready') {
+        const siblings = (kitchenQueue || []).filter(
+          (q) => q.order_id === queueItem.order_id
+        )
+        const allReady = siblings.every(
+          (q) => q.id === queueItem.id ? true : q.status === 'ready'
+        )
+        if (allReady) {
+          const order = (orders || []).find((o) => o.id === queueItem.order_id)
+          if (order) {
+            await updateDoc(doc(db, 'orders', queueItem.order_id), { status: 'ready' })
+          }
+        }
+      }
+    } catch (e) {
+      console.error('kitchen advance error', e)
+    }
+  }
+
   function updateStock(sku, newVal) {
     const val = Math.max(0, Math.round(newVal * 10) / 10)
     setLocalStock((prev) => ({ ...prev, [sku]: val }))
@@ -125,6 +153,7 @@ export default function BackOfHouse() {
     : onShiftNow.length > 0 && recentOrderVolume < onShiftNow.length ? 'overstaffed' : 'ok'
 
   const tabs = [
+    { id: 'kitchen',   label: i18n.language === 'vi' ? 'Bếp' : 'Kitchen' },
     { id: 'inventory', label: i18n.language === 'vi' ? 'Tồn kho' : 'Inventory' },
     { id: 'labor',     label: i18n.language === 'vi' ? 'Nhân sự' : 'Labor' },
     { id: 'supply',    label: i18n.language === 'vi' ? 'Cung ứng & Doanh thu' : 'Supply & Revenue' },
@@ -143,6 +172,82 @@ export default function BackOfHouse() {
           </button>
         ))}
       </div>
+
+      {/* ── Kitchen Tab ── */}
+      {activeTab === 'kitchen' && (
+        <div>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px' }}>
+            {i18n.language === 'vi' ? 'Màn hình bếp' : 'Kitchen Display'}
+          </h2>
+          {kitchenQueue === null ? (
+            <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>
+              {i18n.language === 'vi' ? 'Đang tải...' : 'Loading…'}
+            </p>
+          ) : (() => {
+            const pending    = kitchenQueue.filter((q) => q.status === 'pending')
+            const cooking    = kitchenQueue.filter((q) => q.status === 'in_progress')
+            const done       = kitchenQueue.filter((q) => q.status === 'ready' || q.status === 'completed')
+            const columns = [
+              { label: i18n.language === 'vi' ? 'Chờ' : 'Pending',   items: pending, border: '#CBD5E1', headerBg: '#F1F5F9', headerColor: '#374151' },
+              { label: i18n.language === 'vi' ? 'Đang nấu' : 'Cooking', items: cooking, border: '#FCD34D', headerBg: '#FFFBEB', headerColor: '#92400E' },
+              { label: i18n.language === 'vi' ? 'Xong' : 'Ready',    items: done,    border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
+            ]
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px' }}>
+                {columns.map((col) => (
+                  <div key={col.label} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+                    <div style={{ background: col.headerBg, color: col.headerColor, padding: '10px 14px', fontWeight: 700, fontSize: '13px', borderBottom: `2px solid ${col.border}` }}>
+                      {col.label} ({col.items.length})
+                    </div>
+                    <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px' }}>
+                      {col.items.map((q) => {
+                        const queuedAt = q.queued_at?.toDate ? q.queued_at.toDate() : (q.queued_at ? new Date(q.queued_at) : null)
+                        const elapsed = queuedAt ? Math.round((Date.now() - queuedAt.getTime()) / 60000) : 0
+                        const delayColor = elapsed > 20 ? 'var(--pp-danger-text)' : elapsed > 10 ? '#D97706' : 'var(--pp-success-text)'
+                        return (
+                          <div key={q.id} style={{ background: 'white', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                              <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
+                                {q.qty ? `${q.qty}× ` : ''}{i18n.language === 'vi' ? (q.item_name_vi || q.item_sku) : (q.item_name_en || q.item_sku)}
+                              </p>
+                              {q.table_id && (
+                                <span style={{ fontSize: '11px', background: 'var(--pp-neutral-bg)', color: 'var(--pp-neutral-text)', borderRadius: '4px', padding: '1px 5px', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                                  {q.table_id}
+                                </span>
+                              )}
+                            </div>
+                            <p style={{ fontSize: '12px', fontWeight: 500, color: delayColor, margin: 0 }}>
+                              ⏱ {elapsed} {i18n.language === 'vi' ? 'phút' : 'min'}
+                            </p>
+                            {(q.status === 'pending' || q.status === 'in_progress') && (
+                              <button
+                                onClick={() => handleAdvanceQueueItem(q)}
+                                style={{
+                                  marginTop: '8px', width: '100%', fontSize: '12px', fontWeight: 600,
+                                  padding: '5px 0', borderRadius: '6px', cursor: 'pointer', border: 'none',
+                                  background: q.status === 'pending' ? 'var(--pp-warning-bg)' : 'var(--pp-success-bg)',
+                                  color: q.status === 'pending' ? 'var(--pp-warning-text)' : 'var(--pp-success-text)',
+                                }}
+                              >
+                                {q.status === 'pending'
+                                  ? (i18n.language === 'vi' ? 'Bắt đầu' : 'Start')
+                                  : (i18n.language === 'vi' ? 'Xong ✓' : 'Ready ✓')}
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {col.items.length === 0 && (
+                        <p style={{ fontSize: '12px', color: 'var(--pp-text-hint)', margin: 0 }}>—</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
+      )}
 
       {/* ── Tab A: Inventory ── */}
       {activeTab === 'inventory' && (

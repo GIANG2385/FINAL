@@ -541,11 +541,14 @@ export default function FrontOfHouse() {
                         🍳 {t('foh.inKitchen')}
                       </p>
                       <button
-                        disabled={busy}
-                        onClick={() => handleMarkServed(activeOrder.id)}
-                        style={{ width: '100%', background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+                        disabled
+                        style={{
+                          width: '100%', background: 'var(--pp-border)', color: 'var(--pp-text-muted)',
+                          border: 'none', borderRadius: '99px', padding: '10px',
+                          fontWeight: 700, fontSize: '14px', cursor: 'not-allowed', opacity: 0.7,
+                        }}
                       >
-                        {busy ? '…' : t('foh.markServed')}
+                        {t('foh.waitingForKitchen')}
                       </button>
                     </div>
                   )}

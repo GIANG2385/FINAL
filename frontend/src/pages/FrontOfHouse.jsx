@@ -21,11 +21,19 @@ function toDate(value) {
   return value.toDate ? value.toDate() : new Date(value)
 }
 
-const TABLE_COLORS = {
-  open:     { bg: '#F1F5F9', color: '#475569' },
-  reserved: { bg: '#FEF9C3', color: '#854D0E' },
-  dining:   { bg: '#FFEAED', color: '#A8001F' },
-  cleanup:  { bg: '#FEF0E7', color: '#92400E' },
+const getTableStatusConfig = (lang) => ({
+  open:     { bg: '#F0F4FF', border: '#C7D4F5', color: '#3B5BDB', label: lang === 'vi' ? 'Trống'      : 'Open'     },
+  reserved: { bg: '#FFFBEB', border: '#F5D878', color: '#92400E', label: lang === 'vi' ? 'Đặt trước'  : 'Reserved' },
+  dining:   { bg: '#FFF0F3', border: '#FFB3C1', color: '#C9003A', label: lang === 'vi' ? 'Đang ăn'    : 'Dining'   },
+  cleanup:  { bg: '#FFF7ED', border: '#FCD5A0', color: '#92400E', label: lang === 'vi' ? 'Dọn bàn'    : 'Cleanup'  },
+})
+
+const getElapsedBadgeStyle = (seatedAt) => {
+  if (!seatedAt) return null
+  const minutes = Math.floor((Date.now() - new Date(seatedAt)) / 60000)
+  if (minutes < 30) return { bg: '#DCFCE7', color: '#166534', border: '#86EFAC', label: `${minutes}m` }
+  if (minutes < 60) return { bg: '#FEF9C3', color: '#854D0E', border: '#FDE047', label: `${minutes}m` }
+  return { bg: '#FEE2E2', color: '#991B1B', border: '#FCA5A5', label: `${minutes}m ⚠` }
 }
 
 const AVG_OCCUPIED_MIN = 60  // avg dining time 60 min (1 hr turn)
@@ -601,20 +609,17 @@ export default function FrontOfHouse() {
         <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
           {/* Table grid */}
           <div style={{ flex: '0 0 auto' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(90px,1fr))', gap: '10px', marginBottom: '12px', width: '320px' }}>
-              {tables.map((tb) => {
-                const tc = TABLE_COLORS[tb.status] || TABLE_COLORS.open
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '10px', marginBottom: '12px' }}>
+              {[...tables]
+                .sort((a, b) => parseInt(a.table_id.replace(/\D/g,'')) - parseInt(b.table_id.replace(/\D/g,'')))
+                .map((tb) => {
+                const STATUS_CFG = getTableStatusConfig(i18n.language)
+                const tc = STATUS_CFG[tb.status] || STATUS_CFG.open
                 const isSelected = selectedTable === tb.table_id
-                const tableOrder = orders.find((o) =>
-                  o.table_id === tb.table_id && o.status !== 'cancelled' && o.status !== 'served'
-                )
-                const seatedAt = toDate(tb.seated_at)
-                const elapsedMin = seatedAt && tb.status === 'dining'
-                  ? Math.round((Date.now() - seatedAt.getTime()) / 60000)
-                  : null
                 const reservationForTable = tb.status === 'reserved'
                   ? (reservations || []).find((r) => r.table_id === tb.table_id && r.status === 'confirmed')
                   : null
+                const badgeStyle = tb.status === 'dining' ? getElapsedBadgeStyle(tb.seated_at) : null
                 return (
                   <button
                     key={tb.table_id}
@@ -622,28 +627,23 @@ export default function FrontOfHouse() {
                     style={{
                       borderRadius: '10px', padding: '12px 8px', textAlign: 'center', fontSize: '13px',
                       fontWeight: 500, cursor: 'pointer',
-                      border: isSelected ? '2px solid var(--pp-primary)' : '2px solid transparent',
+                      border: isSelected ? '2px solid var(--pp-primary)' : `1px solid ${tc.border}`,
                       background: tc.bg, color: tc.color, transition: 'border 0.15s',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>{tb.table_id}</div>
-                    <div style={{ fontSize: '11px', marginTop: '2px' }}>{t(`dashboard.status.${tb.status}`)}</div>
-                    {tableOrder && (
-                      <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--pp-primary)', fontWeight: 600 }}>
-                        {t(`foh.orderStatus.${tableOrder.status}`)}
-                      </div>
-                    )}
-                    {elapsedMin !== null && (
-                      <div style={{
-                        marginTop: '4px', fontSize: '11px', fontWeight: 600,
-                        color: elapsedMin > AVG_OCCUPIED_MIN ? 'var(--pp-danger-text)' : 'var(--pp-success-text)',
-                        background: elapsedMin > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
-                        borderRadius: '4px', padding: '1px 4px',
-                      }}>{elapsedMin}m</div>
+                    <div style={{ fontWeight: 700, fontSize: '14px' }}>{tb.table_id}</div>
+                    <div style={{ fontSize: '11px', marginTop: '3px', fontWeight: 500 }}>{tc.label}</div>
+                    {badgeStyle && (
+                      <span style={{
+                        display: 'inline-block', marginTop: '6px', padding: '2px 8px',
+                        borderRadius: '99px', fontSize: '11px', fontWeight: 600,
+                        background: badgeStyle.bg, color: badgeStyle.color, border: `1px solid ${badgeStyle.border}`,
+                      }}>{badgeStyle.label}</span>
                     )}
                     {reservationForTable && (
                       <div style={{
-                        marginTop: '3px', fontSize: '10px', fontWeight: 600, color: '#854D0E',
+                        marginTop: '3px', fontSize: '10px', fontWeight: 600, color: '#92400E',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px',
                       }}>
                         {reservationForTable.guest_name}
@@ -656,10 +656,10 @@ export default function FrontOfHouse() {
 
             {/* Legend */}
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              {Object.entries(TABLE_COLORS).map(([status, style]) => (
+              {Object.entries(getTableStatusConfig(i18n.language)).map(([status, cfg]) => (
                 <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--pp-text-muted)' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: style.bg, border: '1px solid var(--pp-border)' }} />
-                  {t(`dashboard.status.${status}`)}
+                  <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: cfg.bg, border: `1px solid ${cfg.border}` }} />
+                  {cfg.label}
                 </div>
               ))}
             </div>
@@ -925,7 +925,7 @@ export default function FrontOfHouse() {
                 { label: t('boh.kanban.inKitchen'), items: inKitchenQ, dot: '#6366F1', border: '#A5B4FC', headerBg: '#EEF2FF', headerColor: '#3730A3' },
                 { label: t('boh.kanban.completed'), items: completedQ, dot: '#22C55E', border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
               ].map((col) => (
-                <div key={col.label} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden', minHeight: '200px', display: 'flex', flexDirection: 'column' }}>
+                <div key={col.label} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
                   {/* Fix 6+7: nowrap + colored dot */}
                   <div style={{ background: col.headerBg, color: col.headerColor, padding: '10px 14px', fontWeight: 700, fontSize: '13px', borderBottom: `2px solid ${col.border}`, display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />

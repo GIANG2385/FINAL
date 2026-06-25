@@ -366,16 +366,16 @@ export default function BackOfHouse() {
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <button onClick={() => updateStock(item.sku, stock - 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>−</button>
+                            <button onClick={() => updateStock(item.sku, stock - 0.5)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', color: 'var(--pp-text)', fontSize: '16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>−</button>
                             <input type="number" value={stock} step="0.5" min="0"
                               onChange={(e) => updateStock(item.sku, parseFloat(e.target.value) || 0)}
-                              style={{ width: '60px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
+                              style={{ width: '60px', padding: '4px 6px', border: '1px solid var(--pp-border)', borderRadius: '6px', fontSize: '13px', textAlign: 'center', background: 'white', color: 'var(--pp-text)' }}
                             />
-                            <button onClick={() => updateStock(item.sku, stock + 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>+</button>
+                            <button onClick={() => updateStock(item.sku, stock + 0.5)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-primary-border)', background: 'var(--pp-primary-light)', color: 'var(--pp-primary-text)', fontSize: '16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>+</button>
                             {(localStock[item.sku] !== undefined || localUnitCost[item.sku] !== undefined) && (
                               <button
                                 onClick={() => saveStock(item)}
-                                style={{ padding: '2px 10px', borderRadius: '4px', border: 'none', background: 'var(--pp-primary)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                style={{ padding: '4px 12px', borderRadius: '8px', border: 'none', background: 'var(--pp-primary)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 {i18n.language === 'vi' ? 'Lưu' : 'Save'}
                               </button>

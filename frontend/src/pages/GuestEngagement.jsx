@@ -21,9 +21,9 @@ function getLoyaltyTier(visits) {
 function getLoyaltyPoints(visits) { return visits * 50 }
 
 const TIER_STYLES = {
-  vang: { background: 'var(--pp-gold-bg)',   color: 'var(--pp-gold-text)',   border: '1px solid var(--pp-gold-border)' },
-  bac:  { background: 'var(--pp-silver-bg)', color: 'var(--pp-silver-text)', border: '1px solid var(--pp-silver-border)' },
-  dong: { background: 'var(--pp-bronze-bg)', color: 'var(--pp-bronze-text)', border: '1px solid var(--pp-bronze-border)' },
+  vang: { background: 'var(--pp-gold-bg)',   color: 'var(--pp-gold-text)',   border: '1px solid var(--pp-gold-border)',   icon: '★' },
+  bac:  { background: 'var(--pp-silver-bg)', color: 'var(--pp-silver-text)', border: '1px solid var(--pp-silver-border)', icon: '●' },
+  dong: { background: 'var(--pp-bronze-bg)', color: 'var(--pp-bronze-text)', border: '1px solid var(--pp-bronze-border)', icon: '▲' },
 }
 
 export default function GuestEngagement() {
@@ -93,7 +93,8 @@ export default function GuestEngagement() {
                         <td style={{ padding: '12px' }}>{t('guest.visits', { count: g.visits })}</td>
                         <td style={{ padding: '12px' }}>{getLoyaltyPoints(g.visits)}</td>
                         <td style={{ padding: '12px' }}>
-                          <span style={{ ...TIER_STYLES[tier], borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
+                          <span style={{ ...TIER_STYLES[tier], borderRadius: '99px', padding: '3px 10px', fontSize: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '10px' }}>{TIER_STYLES[tier]?.icon}</span>
                             {t(`guest.loyaltyTiers.${tier}`)}
                           </span>
                         </td>

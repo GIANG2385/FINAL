@@ -295,7 +295,7 @@ Backend scheduler runs `runAnalysisInternal()` every 30s.
 - **AI Consultant:** replies in real-time without page refresh
 
 ---
-
+bas/com
 ## UI Issues to Fix (your notes here)
 
-<!-- Add your UI fix notes below -->
+rearrange the table and fix the color that make user easier to look at

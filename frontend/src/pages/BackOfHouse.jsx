@@ -167,7 +167,7 @@ export default function BackOfHouse() {
       setNewDish({ name_en: '', name_vi: '', unit_price: '' })
       setShowAddDish(false)
       setRecipeError(null)
-    } catch (e) { console.error(e); setRecipeError('Error saving') }
+    } catch (e) { console.error(e); setRecipeError(e.message || 'Error saving') }
   }
 
   async function handleDeleteDish(dishId) {
@@ -188,7 +188,7 @@ export default function BackOfHouse() {
       setNewIngredient({ ingredient_sku: '', qty: '' })
       setAddIngredientTo(null)
       setRecipeError(null)
-    } catch (e) { console.error(e); setRecipeError('Error saving') }
+    } catch (e) { console.error(e); setRecipeError(e.message || 'Error saving') }
   }
 
   async function handleDeleteIngredient(dish, ingredientSku) {

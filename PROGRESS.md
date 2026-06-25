@@ -175,3 +175,56 @@ CSS custom properties in `index.css`:
 **Firestore rules**
 
 - Added `menu_items` collection rule (was missing — caused "loading forever" + "error saving" on Recipes tab).
+
+---
+
+### 2026-06-25 (session 3 — full Supabase migration + deployment)
+
+**Full migration: Firestore → Supabase (PostgreSQL)**
+
+- Firestore database deleted (free-tier quota exhausted; 2000+ orders exceeded 50K reads/day limit).
+- All data moved to Supabase project `zekubqxngmhlfqbfgdzo`.
+- DDL in `backend/src/scripts/supabase_schema.sql` — tables: `tables`, `menu_items`, `inventory`, `staff_shifts`, `orders`, `kitchen_queue`, `insights`, `reservations`, `consultant_messages`, `analytics_baseline`, `users`.
+- `backend/src/supabaseClient.js` created — uses `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
+- All backend controllers migrated: `ordersController`, `insightsController`, `consultantController`, `profitController`.
+- `loadOrdersToSupabase.js` — one-time script loaded 2000 June orders from JSON into Supabase.
+- `computeHistoricalBaseline.js` updated to read from Supabase `orders` table, write to `analytics_baseline`.
+- `seedSupabase.js` — seeds tables, menu_items, inventory, staff_shifts, reservations, users, kitchen_queue, live orders.
+
+**Frontend migration: Firestore → Supabase real-time**
+
+- `frontend/src/services/firebase.js` — removed `getFirestore`/`db`; only `auth` (Firebase Auth) remains.
+- `frontend/src/services/supabase.js` — created with anon key.
+- All pages (Dashboard, FOH, BOH, Insights, GuestEngagement, Consultant) migrated from `onSnapshot` to Supabase `postgres_changes` real-time subscriptions.
+- `AuthContext.jsx` — user role now fetched from `/api/me` (backend, Firebase-token-protected) instead of Supabase anon key, which was blocked by RLS.
+
+**Supabase RLS fix**
+
+- RLS `disable` commands were insufficient — anon key still returned 0 rows.
+- Fix: enabled RLS on all tables + created `allow_all` policy for `anon` and `authenticated` roles:
+  ```sql
+  create policy "allow_all" on <table> for all to anon, authenticated using (true) with check (true);
+  ```
+- Also granted `usage` on schema public + `all` on all tables to `anon`/`authenticated`.
+
+**Backend `/api/me` endpoint**
+
+- Added `GET /api/me` (Firebase-auth-protected) — reads user row from Supabase with service key, returns `{ uid, email, role }`.
+- `AuthContext` calls this on login to get role; Dashboard + AI Consultant nav items appear for `admin`/`manager`.
+
+**Deployment**
+
+- Backend deployed to Render: `https://pang-pang.onrender.com`.
+- Frontend deployed to Vercel: `https://final-wine-five.vercel.app`.
+- `VITE_API_BASE_URL` set in Vercel env vars pointing to Render.
+- Render env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `COHERE_API_KEY`, `COHERE_MODEL=command-a-03-2025`, Firebase service account JSON.
+
+**Data state (post-migration)**
+
+- 2000 historical June orders in Supabase `orders` table.
+- 4 live orders seeded (LIVE-001 to LIVE-004); LIVE-003 status `pending`.
+- 8 tables (T01–T08): open/dining/reserved per realistic state.
+- 7 confirmed + 1 cancelled reservations (R001–R008).
+- 14 staff shifts across 2 shifts.
+- 2 users: `hgiang2308@gmail.com` (admin), `staff.test@pangpang.local` (staff).
+- Kitchen queue: KQ-001 `in_progress`.

@@ -68,6 +68,8 @@ export default function BackOfHouse() {
   const [addIngredientTo, setAddIngredientTo] = useState(null)
   const [newIngredient, setNewIngredient] = useState({ ingredient_sku: '', qty: '' })
   const [recipeError, setRecipeError] = useState(null)
+  const [editingIngredient, setEditingIngredient] = useState(null) // { dishId, ingredient_sku }
+  const [editValues, setEditValues] = useState({ qty: '', unit_cost: '' })
   const seededRef = useRef(false)
 
   useEffect(() => {
@@ -194,6 +196,36 @@ export default function BackOfHouse() {
   async function handleDeleteIngredient(dish, ingredientSku) {
     const updated = (dish.recipes || []).filter((r) => r.ingredient_sku !== ingredientSku)
     try { await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated }) } catch (e) { console.error(e) }
+  }
+
+  function startEditIngredient(dish, r) {
+    const inv = invMap[r.ingredient_sku]
+    setEditingIngredient({ dishId: dish.id, ingredient_sku: r.ingredient_sku })
+    setEditValues({ qty: String(r.qty), unit_cost: String(inv?.unit_cost ?? '') })
+    setRecipeError(null)
+  }
+
+  async function handleSaveIngredientEdit(dish) {
+    const qty = parseFloat(editValues.qty)
+    const unit_cost = editValues.unit_cost !== '' ? parseFloat(editValues.unit_cost) : null
+    if (!qty || qty <= 0) { setRecipeError('Qty must be > 0'); return }
+    try {
+      // Update recipe qty on the dish
+      const updated = (dish.recipes || []).map((r) =>
+        r.ingredient_sku === editingIngredient.ingredient_sku ? { ...r, qty } : r
+      )
+      await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated })
+
+      // Update unit_cost on the inventory item if provided
+      if (unit_cost !== null) {
+        const inv = invMap[editingIngredient.ingredient_sku]
+        if (inv?.id) await updateDoc(doc(db, 'inventory', inv.id), { unit_cost })
+      }
+
+      setEditingIngredient(null)
+      setEditValues({ qty: '', unit_cost: '' })
+      setRecipeError(null)
+    } catch (e) { console.error(e); setRecipeError(e.message || 'Error saving') }
   }
 
   async function handleUpdateDishPrice(dish, newPrice) {
@@ -423,7 +455,7 @@ export default function BackOfHouse() {
                           {[
                             i18n.language === 'vi' ? 'Nguyên liệu' : 'Ingredient',
                             i18n.language === 'vi' ? 'Lượng dùng/phần' : 'Qty/serving',
-                            i18n.language === 'vi' ? 'Chi phí/phần' : 'Cost/serving',
+                            i18n.language === 'vi' ? 'Giá/đơn vị → Chi phí/phần' : 'Cost/unit → Cost/serving',
                             '',
                           ].map((h, i) => (
                             <th key={i} style={{ padding: '8px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
@@ -440,22 +472,69 @@ export default function BackOfHouse() {
                         ) : (dish.recipes || []).map((r) => {
                           const inv = invMap[r.ingredient_sku]
                           const lineCost = r.qty * (inv?.unit_cost ?? 0)
+                          const isEditing = editingIngredient?.dishId === dish.id && editingIngredient?.ingredient_sku === r.ingredient_sku
                           return (
-                            <tr key={r.ingredient_sku} style={{ borderTop: '1px solid var(--pp-border)' }}>
+                            <tr key={r.ingredient_sku} style={{ borderTop: '1px solid var(--pp-border)', background: isEditing ? 'var(--pp-info-bg)' : 'transparent' }}>
                               <td style={{ padding: '10px 12px', fontWeight: 500 }}>
                                 {i18n.language === 'vi' ? (inv?.name_vi || r.ingredient_name_vi || r.ingredient_sku) : (inv?.name_en || r.ingredient_name_en || r.ingredient_sku)}
                               </td>
-                              <td style={{ padding: '10px 12px', color: 'var(--pp-text-muted)' }}>
-                                {r.qty} {inv?.unit || ''}
-                              </td>
-                              <td style={{ padding: '10px 12px', color: inv?.unit_cost ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
-                                {inv?.unit_cost ? formatVnd(lineCost, i18n.language) : '—'}
+                              <td style={{ padding: '10px 12px' }}>
+                                {isEditing ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <input
+                                      type="number" min="0" step="0.01" value={editValues.qty}
+                                      onChange={(e) => setEditValues((v) => ({ ...v, qty: e.target.value }))}
+                                      style={{ width: '70px', border: '1px solid var(--pp-border)', borderRadius: '4px', padding: '3px 6px', fontSize: '13px' }}
+                                    />
+                                    <span style={{ fontSize: '12px', color: 'var(--pp-text-muted)' }}>{inv?.unit || ''}</span>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--pp-text-muted)' }}>{r.qty} {inv?.unit || ''}</span>
+                                )}
                               </td>
                               <td style={{ padding: '10px 12px' }}>
-                                <button
-                                  onClick={() => handleDeleteIngredient(dish, r.ingredient_sku)}
-                                  style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}
-                                >✕</button>
+                                {isEditing ? (
+                                  <input
+                                    type="number" min="0" step="100"
+                                    value={editValues.unit_cost}
+                                    placeholder={i18n.language === 'vi' ? 'Giá/đơn vị' : 'Cost/unit'}
+                                    onChange={(e) => setEditValues((v) => ({ ...v, unit_cost: e.target.value }))}
+                                    style={{ width: '100px', border: '1px solid var(--pp-border)', borderRadius: '4px', padding: '3px 6px', fontSize: '13px' }}
+                                  />
+                                ) : (
+                                  <span style={{ color: inv?.unit_cost ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
+                                    {inv?.unit_cost ? formatVnd(lineCost, i18n.language) : '—'}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {isEditing ? (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                      onClick={() => handleSaveIngredientEdit(dish)}
+                                      style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      {i18n.language === 'vi' ? 'Lưu' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingIngredient(null); setRecipeError(null) }}
+                                      style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '3px 8px', fontSize: '12px', cursor: 'pointer' }}
+                                    >✕</button>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                      onClick={() => startEditIngredient(dish, r)}
+                                      style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '3px 8px', fontSize: '12px', cursor: 'pointer', color: 'var(--pp-text-muted)' }}
+                                    >
+                                      {i18n.language === 'vi' ? 'Sửa' : 'Edit'}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteIngredient(dish, r.ingredient_sku)}
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}
+                                    >✕</button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           )

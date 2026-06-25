@@ -261,15 +261,21 @@ export default function FrontOfHouse() {
         deductions[recipe.ingredient_sku] = (deductions[recipe.ingredient_sku] || 0) + recipe.qty * item.qty
       }
     }
+    const skus = Object.keys(deductions)
+    if (skus.length === 0) return
+
+    // Fetch fresh stock values directly from Supabase to avoid stale invMap
+    const { data: freshInv } = await supabase.from('inventory').select('sku, current_stock').in('sku', skus)
+    const freshMap = {}
+    for (const row of freshInv || []) freshMap[row.sku] = row.current_stock
+
     await Promise.all(
-      Object.entries(deductions).map(([ingredientSku, amount]) => {
-        const inv = invMap[ingredientSku]
-        if (inv?.sku) {
-          return supabase.from('inventory').update({
-            current_stock: Math.max(0, (inv.current_stock ?? 0) - amount),
-          }).eq('sku', inv.sku)
-        }
-        return Promise.resolve()
+      skus.map((ingredientSku) => {
+        const amount = deductions[ingredientSku]
+        const currentStock = freshMap[ingredientSku] ?? 0
+        return supabase.from('inventory').update({
+          current_stock: Math.max(0, currentStock - amount),
+        }).eq('sku', ingredientSku)
       })
     )
   }

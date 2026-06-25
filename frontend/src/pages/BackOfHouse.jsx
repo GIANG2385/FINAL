@@ -68,17 +68,19 @@ export default function BackOfHouse() {
   const [newIngredient, setNewIngredient] = useState({ ingredient_sku: '', qty: '' })
   const [recipeError, setRecipeError] = useState(null)
   const [editingIngredient, setEditingIngredient] = useState(null) // { dishId, ingredient_sku }
-  const [editValues, setEditValues] = useState({ qty: '', unit_cost: '' })
+  const [editValues, setEditValues] = useState({ qty: '', cost_per_unit: '' })
   const seededRef = useRef(false)
   const costSeededRef = useRef(false)
 
   const UNIT_COSTS = {
-    'TH-CHK-01':    90000,
-    'TH-BEEF-01':  220000,
-    'TH-SHRIMP-01':180000,
-    'TH-RICE-01':   22000,
-    'TH-BASIL-01':  40000,
-    'TH-COCO-01':   35000,
+    'INV-CHK-01':    90000,
+    'INV-BEEF-01':  220000,
+    'INV-SHRIMP-01':180000,
+    'INV-RICE-01':   22000,
+    'INV-BASIL-01':  40000,
+    'INV-COCO-01':   35000,
+    'INV-MANGO-01':  50000,
+    'INV-NOODLE-01': 18000,
   }
 
   useEffect(() => {
@@ -111,12 +113,12 @@ export default function BackOfHouse() {
     supabase.from('inventory').select('*').then(async ({ data }) => {
       const items = data || []
       setInventoryRaw(items)
-      // Auto-seed unit_cost if none of the items have it yet
-      if (!costSeededRef.current && items.length > 0 && items.every((i) => i.unit_cost == null)) {
+      // Auto-seed cost_per_unit if none of the items have it yet
+      if (!costSeededRef.current && items.length > 0 && items.every((i) => i.cost_per_unit == null)) {
         costSeededRef.current = true
         for (const item of items) {
           if (UNIT_COSTS[item.sku] != null) {
-            await supabase.from('inventory').update({ unit_cost: UNIT_COSTS[item.sku] }).eq('sku', item.sku).catch(console.error)
+            await supabase.from('inventory').update({ cost_per_unit: UNIT_COSTS[item.sku] }).eq('sku', item.sku).catch(console.error)
           }
         }
       }
@@ -196,7 +198,7 @@ export default function BackOfHouse() {
 
   async function saveStock(item) {
     const updates = { current_stock: getStock(item) }
-    if (localUnitCost[item.sku] !== undefined) updates.unit_cost = localUnitCost[item.sku]
+    if (localUnitCost[item.sku] !== undefined) updates.cost_per_unit = localUnitCost[item.sku]
     try {
       await supabase.from('inventory').update(updates).eq('sku', item.sku)
       setLocalStock((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
@@ -255,13 +257,13 @@ export default function BackOfHouse() {
   function startEditIngredient(dish, r) {
     const inv = invMap[r.ingredient_sku]
     setEditingIngredient({ dishId: dish.sku, ingredient_sku: r.ingredient_sku })
-    setEditValues({ qty: String(r.qty), unit_cost: String(inv?.unit_cost ?? '') })
+    setEditValues({ qty: String(r.qty), cost_per_unit: String(inv?.cost_per_unit ?? '') })
     setRecipeError(null)
   }
 
   async function handleSaveIngredientEdit(dish) {
     const qty = parseFloat(editValues.qty)
-    const unit_cost = editValues.unit_cost !== '' ? parseFloat(editValues.unit_cost) : null
+    const cost_per_unit = editValues.cost_per_unit !== '' ? parseFloat(editValues.cost_per_unit) : null
     if (!qty || qty <= 0) { setRecipeError('Qty must be > 0'); return }
     try {
       // Update recipe qty on the dish
@@ -270,14 +272,14 @@ export default function BackOfHouse() {
       )
       await supabase.from('menu_items').update({ recipes: updated }).eq('sku', dish.sku)
 
-      // Update unit_cost on the inventory item if provided
-      if (unit_cost !== null) {
+      // Update cost_per_unit on the inventory item if provided
+      if (cost_per_unit !== null) {
         const inv = invMap[editingIngredient.ingredient_sku]
-        if (inv?.sku) await supabase.from('inventory').update({ cost_per_unit: unit_cost }).eq('sku', inv.sku)
+        if (inv?.sku) await supabase.from('inventory').update({ cost_per_unit: cost_per_unit }).eq('sku', inv.sku)
       }
 
       setEditingIngredient(null)
-      setEditValues({ qty: '', unit_cost: '' })
+      setEditValues({ qty: '', cost_per_unit: '' })
       setRecipeError(null)
     } catch (e) { console.error(e); setRecipeError(e.message || 'Error saving') }
   }
@@ -356,7 +358,7 @@ export default function BackOfHouse() {
                         <td style={{ padding: '12px' }}>
                           <input
                             type="number" min="0" step="100"
-                            value={localUnitCost[item.sku] !== undefined ? localUnitCost[item.sku] : (item.unit_cost ?? '')}
+                            value={localUnitCost[item.sku] !== undefined ? localUnitCost[item.sku] : (item.cost_per_unit ?? '')}
                             placeholder="0"
                             onChange={(e) => setLocalUnitCost((p) => ({ ...p, [item.sku]: parseFloat(e.target.value) || 0 }))}
                             style={{ width: '80px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
@@ -458,9 +460,9 @@ export default function BackOfHouse() {
               {menuItems.map((dish) => {
                 const dishCost = (dish.recipes || []).reduce((sum, r) => {
                   const inv = invMap[r.ingredient_sku]
-                  return sum + r.qty * (inv?.unit_cost ?? 0)
+                  return sum + r.qty * (inv?.cost_per_unit ?? 0)
                 }, 0)
-                const hasCost = (dish.recipes || []).some((r) => invMap[r.ingredient_sku]?.unit_cost)
+                const hasCost = (dish.recipes || []).some((r) => invMap[r.ingredient_sku]?.cost_per_unit)
                 const margin = dish.unit_price && dishCost ? ((dish.unit_price - dishCost) / dish.unit_price * 100).toFixed(1) : null
 
                 return (
@@ -525,7 +527,7 @@ export default function BackOfHouse() {
                           </tr>
                         ) : (dish.recipes || []).map((r) => {
                           const inv = invMap[r.ingredient_sku]
-                          const lineCost = r.qty * (inv?.unit_cost ?? 0)
+                          const lineCost = r.qty * (inv?.cost_per_unit ?? 0)
                           const isEditing = editingIngredient?.dishId === dish.sku && editingIngredient?.ingredient_sku === r.ingredient_sku
                           return (
                             <tr key={r.ingredient_sku} style={{ borderTop: '1px solid var(--pp-border)', background: isEditing ? 'var(--pp-info-bg)' : 'transparent' }}>
@@ -550,14 +552,14 @@ export default function BackOfHouse() {
                                 {isEditing ? (
                                   <input
                                     type="number" min="0" step="100"
-                                    value={editValues.unit_cost}
+                                    value={editValues.cost_per_unit}
                                     placeholder={i18n.language === 'vi' ? 'Giá/đơn vị' : 'Cost/unit'}
-                                    onChange={(e) => setEditValues((v) => ({ ...v, unit_cost: e.target.value }))}
+                                    onChange={(e) => setEditValues((v) => ({ ...v, cost_per_unit: e.target.value }))}
                                     style={{ width: '100px', border: '1px solid var(--pp-border)', borderRadius: '4px', padding: '3px 6px', fontSize: '13px' }}
                                   />
                                 ) : (
-                                  <span style={{ color: inv?.unit_cost ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
-                                    {inv?.unit_cost ? formatVnd(lineCost, i18n.language) : '—'}
+                                  <span style={{ color: inv?.cost_per_unit ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
+                                    {inv?.cost_per_unit ? formatVnd(lineCost, i18n.language) : '—'}
                                   </span>
                                 )}
                               </td>

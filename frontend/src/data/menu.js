@@ -1,36 +1,39 @@
-// Must mirror backend/src/data/menu.js (sku + price) for the POS-lite picker.
+// Must mirror Supabase menu_items table (sku + price).
 // recipes: list of { ingredient_sku, qty } consumed per 1 serving.
 export const MENU_ITEMS = [
   {
-    sku: 'M-PAD-THAI', name_en: 'Pad Thai', name_vi: 'Pad Thái', unit_price: 95000,
+    sku: 'MENU-BEEFBASIL', name_en: 'Basil Beef', name_vi: 'Bò xào húng quế', unit_price: 110000,
     recipes: [
-      { ingredient_sku: 'TH-SHRIMP-01', qty: 0.15 },
-      { ingredient_sku: 'TH-RICE-01',   qty: 0.1  },
+      { ingredient_sku: 'INV-BEEF-01',  ingredient_name_en: 'Beef Sirloin',  ingredient_name_vi: 'Thịt bò', qty: 0.2,  unit: 'kg' },
+      { ingredient_sku: 'INV-BASIL-01', ingredient_name_en: 'Thai Basil',    ingredient_name_vi: 'Húng quế', qty: 0.05, unit: 'kg' },
     ],
   },
   {
-    sku: 'M-GREEN-CURRY', name_en: 'Green Curry', name_vi: 'Cà ri xanh', unit_price: 120000,
+    sku: 'MENU-CHICKENCURRY', name_en: 'Chicken Curry', name_vi: 'Cà ri gà', unit_price: 105000,
     recipes: [
-      { ingredient_sku: 'TH-CHK-01',  qty: 0.2  },
-      { ingredient_sku: 'TH-COCO-01', qty: 0.15 },
+      { ingredient_sku: 'INV-CHK-01',   ingredient_name_en: 'Chicken Thigh', ingredient_name_vi: 'Đùi gà',      qty: 0.25, unit: 'kg' },
+      { ingredient_sku: 'INV-COCO-01',  ingredient_name_en: 'Coconut Milk',  ingredient_name_vi: 'Nước cốt dừa', qty: 0.15, unit: 'L'  },
     ],
   },
   {
-    sku: 'M-TOM-YUM', name_en: 'Tom Yum Soup', name_vi: 'Súp Tom Yum', unit_price: 85000,
+    sku: 'MENU-TOMYUM', name_en: 'Tom Yum Soup', name_vi: 'Súp Tom Yum', unit_price: 95000,
     recipes: [
-      { ingredient_sku: 'TH-SHRIMP-01', qty: 0.1 },
+      { ingredient_sku: 'INV-SHRIMP-01', ingredient_name_en: 'Shrimp',      ingredient_name_vi: 'Tôm',        qty: 0.15, unit: 'kg' },
+      { ingredient_sku: 'INV-BASIL-01',  ingredient_name_en: 'Thai Basil',  ingredient_name_vi: 'Húng quế',   qty: 0.03, unit: 'kg' },
     ],
   },
   {
-    sku: 'M-MANGO-STICKY', name_en: 'Mango Sticky Rice', name_vi: 'Xôi xoài', unit_price: 60000,
+    sku: 'MENU-PADTHAI', name_en: 'Pad Thai', name_vi: 'Pad Thái', unit_price: 90000,
     recipes: [
-      { ingredient_sku: 'TH-RICE-01', qty: 0.15 },
+      { ingredient_sku: 'INV-SHRIMP-01',  ingredient_name_en: 'Shrimp',        ingredient_name_vi: 'Tôm',     qty: 0.12, unit: 'kg' },
+      { ingredient_sku: 'INV-NOODLE-01',  ingredient_name_en: 'Rice Noodles',  ingredient_name_vi: 'Bún gạo', qty: 0.1,  unit: 'kg' },
     ],
   },
   {
-    sku: 'M-SPRING-ROLL', name_en: 'Spring Rolls', name_vi: 'Chả giò', unit_price: 50000,
+    sku: 'MENU-MANGORICE', name_en: 'Mango Sticky Rice', name_vi: 'Xôi xoài', unit_price: 65000,
     recipes: [
-      { ingredient_sku: 'TH-BASIL-01', qty: 0.05 },
+      { ingredient_sku: 'INV-RICE-01',  ingredient_name_en: 'Jasmine Rice', ingredient_name_vi: 'Gạo jasmine', qty: 0.15, unit: 'kg' },
+      { ingredient_sku: 'INV-MANGO-01', ingredient_name_en: 'Mango',        ingredient_name_vi: 'Xoài',        qty: 0.2,  unit: 'kg' },
     ],
   },
 ]

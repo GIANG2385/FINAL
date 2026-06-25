@@ -1,4 +1,4 @@
-import { db } from '../firebaseAdmin.js'
+// src/controllers/profitController.js
 import { supabase } from '../supabaseClient.js'
 import { getHistoricalBaseline } from '../services/historicalBaseline.js'
 
@@ -37,7 +37,7 @@ export async function getProfitSummary(req, res) {
     .select('total_amount, status')
     .eq('status', 'served')
     .gte('served_at', cutoff.toISOString())
-  if (ordersErr) throw new Error(ordersErr.message)
+  if (ordersErr) return res.status(500).json({ error: ordersErr.message })
 
   const revenue = orders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
 
@@ -47,11 +47,14 @@ export async function getProfitSummary(req, res) {
   const baseline = await getHistoricalBaseline()
   const historical_avg_revenue = baseline.avgDailyRevenue * RANGE_DAYS[range]
 
-  const shiftsSnap = await db.collection('staff_shifts').get()
-  const labor_cost = shiftsSnap.docs.reduce((sum, doc) => {
-    const shift = doc.data()
-    const start = shift.shift_start?.toDate ? shift.shift_start.toDate() : new Date(shift.shift_start)
-    const end = shift.shift_end?.toDate ? shift.shift_end.toDate() : new Date(shift.shift_end)
+  const { data: shifts, error: shiftsErr } = await supabase
+    .from('staff_shifts')
+    .select('shift_start, shift_end, role')
+  if (shiftsErr) return res.status(500).json({ error: shiftsErr.message })
+
+  const labor_cost = (shifts || []).reduce((sum, shift) => {
+    const start = new Date(shift.shift_start)
+    const end = new Date(shift.shift_end)
     const hours = Math.max(0, (end - start) / (1000 * 60 * 60))
     const wage = HOURLY_WAGE_BY_ROLE[shift.role] ?? DEFAULT_HOURLY_WAGE
     return sum + hours * wage

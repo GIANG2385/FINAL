@@ -99,6 +99,34 @@ export default function FrontOfHouse() {
       .find((o) => o.status !== 'served' || !o.payment_method) || null
   }, [orders, selectedTable])
 
+  useEffect(() => {
+    const checkReservations = () => {
+      if (!reservations || !tables) return
+      const now = Date.now()
+      const TEN_MIN = 10 * 60 * 1000
+
+      reservations.forEach((r) => {
+        if (r.status !== 'confirmed' || !r.table_id) return
+        const resTime = toDate(r.reservation_time)?.getTime()
+        if (!resTime) return
+
+        const inWindow = now >= resTime - TEN_MIN && now <= resTime + TEN_MIN
+        const table = tables.find((tb) => tb.table_id === r.table_id)
+        if (!table) return
+
+        if (inWindow && table.status === 'open') {
+          updateDoc(doc(db, 'tables', r.table_id), { status: 'reserved' }).catch(console.error)
+        } else if (!inWindow && now > resTime + TEN_MIN && table.status === 'reserved') {
+          updateDoc(doc(db, 'tables', r.table_id), { status: 'open' }).catch(console.error)
+        }
+      })
+    }
+
+    checkReservations()
+    const interval = setInterval(checkReservations, 60 * 1000)
+    return () => clearInterval(interval)
+  }, [reservations, tables])
+
   if (tables === null || orders === null) {
     return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
   }
@@ -332,6 +360,9 @@ export default function FrontOfHouse() {
                 const elapsedMin = seatedAt && tb.status === 'dining'
                   ? Math.round((Date.now() - seatedAt.getTime()) / 60000)
                   : null
+                const reservationForTable = tb.status === 'reserved'
+                  ? (reservations || []).find((r) => r.table_id === tb.table_id && r.status === 'confirmed')
+                  : null
                 return (
                   <button
                     key={tb.table_id}
@@ -357,6 +388,14 @@ export default function FrontOfHouse() {
                         background: elapsedMin > AVG_OCCUPIED_MIN ? 'var(--pp-danger-bg)' : 'var(--pp-success-bg)',
                         borderRadius: '4px', padding: '1px 4px',
                       }}>{elapsedMin}m</div>
+                    )}
+                    {reservationForTable && (
+                      <div style={{
+                        marginTop: '3px', fontSize: '10px', fontWeight: 600, color: '#854D0E',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px',
+                      }}>
+                        {reservationForTable.guest_name}
+                      </div>
                     )}
                   </button>
                 )

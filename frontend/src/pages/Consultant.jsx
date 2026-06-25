@@ -66,7 +66,17 @@ export default function Consultant() {
         if (payload.new?.user_id !== uid) return
         setMessages((prev) => {
           if (!prev) return [payload.new]
+          // Already have this real ID — skip
           if (prev.find((m) => m.id === payload.new.id)) return prev
+          // Replace matching optimistic message (same role + content) instead of appending
+          const optIdx = prev.findIndex(
+            (m) => m.id?.startsWith('opt-') && m.role === payload.new.role && m.content === payload.new.content
+          )
+          if (optIdx !== -1) {
+            const next = [...prev]
+            next[optIdx] = payload.new
+            return next
+          }
           return [...prev, payload.new]
         })
       })
@@ -94,8 +104,11 @@ export default function Consultant() {
 
     try {
       await api.post('/api/consultant/messages', { message: text })
-      // Guaranteed refresh after API responds to get the real IDs + assistant reply
-      if (uidRef.current) refreshMessages(uidRef.current)
+      // Refresh after API responds — real-time may already have delivered both messages,
+      // but this guarantees the assistant reply appears even if real-time is slow
+      setTimeout(() => {
+        if (uidRef.current) refreshMessages(uidRef.current)
+      }, 300)
     } catch {
       setError(t('consultant.error'))
       // Remove optimistic message on failure

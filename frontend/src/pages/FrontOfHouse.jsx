@@ -230,6 +230,7 @@ export default function FrontOfHouse() {
         return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
       })
 
+      // Merge into full bill (for total_amount tracking)
       const merged = [...existingItems]
       for (const ni of newItems) {
         const idx = merged.findIndex((e) => e.sku === ni.sku)
@@ -241,9 +242,73 @@ export default function FrontOfHouse() {
       }
 
       const total_amount = merged.reduce((s, i) => s + i.unit_price * i.qty, 0)
-      await updateDoc(orderRef, { items: merged, total_amount, status: 'open' })
+
+      // Update bill total and send only new items to kitchen
+      await updateDoc(orderRef, { items: merged, total_amount, status: 'in_kitchen' })
+
+      const batch = writeBatch(db)
+      for (const item of newItems) {
+        const qRef = doc(collection(db, 'kitchen_queue'))
+        batch.set(qRef, {
+          order_id: orderId,
+          table_id: selectedTable,
+          item_sku: item.sku,
+          item_name_vi: item.name_vi,
+          item_name_en: item.name_en,
+          qty: item.qty,
+          station: 'kitchen',
+          status: 'pending',
+          queued_at: serverTimestamp(),
+          started_at: null,
+          completed_at: null,
+          prep_time_target_min: 15,
+        })
+      }
+      await batch.commit()
+
       setCart({})
       setAddingMore(false)
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
+  }
+
+  async function handleRecallToKitchen(orderId) {
+    const activeEntries = (kitchenQueue || []).filter(
+      (q) => q.order_id === orderId && (q.status === 'pending' || q.status === 'in_progress')
+    )
+    if (activeEntries.length > 0) {
+      setError(i18n.language === 'vi'
+        ? 'Đơn hàng đang trong hàng chờ bếp, vui lòng chờ'
+        : 'Order is already in kitchen queue, please wait')
+      return
+    }
+
+    setBusy(true); setError(null)
+    try {
+      const order = orders.find((o) => o.id === orderId)
+      if (order?.items?.length) {
+        const batch = writeBatch(db)
+        for (const item of order.items) {
+          const qRef = doc(collection(db, 'kitchen_queue'))
+          batch.set(qRef, {
+            order_id: orderId,
+            table_id: order.table_id,
+            item_sku: item.sku,
+            item_name_vi: item.name_vi,
+            item_name_en: item.name_en,
+            qty: item.qty,
+            station: 'kitchen',
+            status: 'pending',
+            queued_at: serverTimestamp(),
+            started_at: null,
+            completed_at: null,
+            prep_time_target_min: 15,
+          })
+        }
+        await batch.commit()
+      }
     } catch (e) {
       console.error(e)
       setError(t('common.error'))
@@ -594,14 +659,16 @@ export default function FrontOfHouse() {
                         🍳 {t('foh.inKitchen')}
                       </p>
                       <button
-                        disabled
+                        disabled={busy}
+                        onClick={() => handleRecallToKitchen(activeOrder.id)}
                         style={{
-                          width: '100%', background: 'var(--pp-border)', color: 'var(--pp-text-muted)',
-                          border: 'none', borderRadius: '99px', padding: '10px',
-                          fontWeight: 700, fontSize: '14px', cursor: 'not-allowed', opacity: 0.7,
+                          width: '100%', background: 'transparent', color: 'var(--pp-warning-text)',
+                          border: '1px solid var(--pp-warning-border)', borderRadius: '99px', padding: '10px',
+                          fontWeight: 600, fontSize: '13px', cursor: busy ? 'not-allowed' : 'pointer',
+                          opacity: busy ? 0.5 : 1,
                         }}
                       >
-                        {t('foh.waitingForKitchen')}
+                        {busy ? '…' : (i18n.language === 'vi' ? '🔔 Gọi lại bếp' : '🔔 Recall to Kitchen')}
                       </button>
                     </div>
                   )}

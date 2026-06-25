@@ -71,6 +71,16 @@ export default function BackOfHouse() {
   const [editingIngredient, setEditingIngredient] = useState(null) // { dishId, ingredient_sku }
   const [editValues, setEditValues] = useState({ qty: '', unit_cost: '' })
   const seededRef = useRef(false)
+  const costSeededRef = useRef(false)
+
+  const UNIT_COSTS = {
+    'TH-CHK-01':    90000,
+    'TH-BEEF-01':  220000,
+    'TH-SHRIMP-01':180000,
+    'TH-RICE-01':   22000,
+    'TH-BASIL-01':  40000,
+    'TH-COCO-01':   35000,
+  }
 
   useEffect(() => {
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
@@ -81,8 +91,20 @@ export default function BackOfHouse() {
     const unsubOrders = onSnapshot(todayOrders, (snap) => {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
-      setInventoryRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const unsubInv = onSnapshot(collection(db, 'inventory'), async (snap) => {
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setInventoryRaw(items)
+      // Auto-seed unit_cost if none of the items have it yet
+      if (!costSeededRef.current && items.length > 0 && items.every((i) => i.unit_cost == null)) {
+        costSeededRef.current = true
+        const batch = writeBatch(db)
+        items.forEach((item) => {
+          if (UNIT_COSTS[item.sku] != null) {
+            batch.update(doc(db, 'inventory', item.id), { unit_cost: UNIT_COSTS[item.sku] })
+          }
+        })
+        await batch.commit().catch(console.error)
+      }
     })
     const unsubMenu = onSnapshot(collection(db, 'menu_items'), async (snap) => {
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))

@@ -11,6 +11,7 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
+    // Admin and manager are the same tier — only distinction from staff is Consultant access
     function isManagerOrAdmin() {
       return isSignedIn() && role() in ['manager', 'admin'];
     }
@@ -20,58 +21,50 @@ service cloud.firestore {
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
+    // AI Consultant is manager/admin only
     match /consultant_conversations/{userId}/messages/{messageId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if isManagerOrAdmin() && request.auth.uid == userId;
     }
 
+    // All signed-in staff can read and write everything below
     match /insights/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isManagerOrAdmin();
+      allow read, write: if isSignedIn();
     }
 
     match /inventory/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isManagerOrAdmin();
+      allow read, write: if isSignedIn();
     }
 
     match /staff_shifts/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isManagerOrAdmin();
+      allow read, write: if isSignedIn();
     }
 
     match /orders/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     match /kitchen_queue/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     match /tables/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     match /reservations/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     match /feedback/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /menu_items/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isManagerOrAdmin();
+      allow read, write: if isSignedIn();
     }
 
     match /external_factors/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isManagerOrAdmin();
+      allow read, write: if isSignedIn();
+    }
+
+    match /menu_items/{docId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

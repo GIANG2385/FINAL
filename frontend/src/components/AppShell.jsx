@@ -77,9 +77,6 @@ export default function AppShell({ children }) {
 
         {/* Bottom */}
         <div style={{ padding: '12px 8px 20px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-          <button style={{ width: '100%', background: '#E8002A', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '8px' }}>
-            📄 Shift Report
-          </button>
           <Link to="/settings" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 12px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', textDecoration: 'none', borderRadius: '6px' }}>
             ⚙ Settings
           </Link>

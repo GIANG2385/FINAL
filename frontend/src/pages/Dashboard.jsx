@@ -195,19 +195,19 @@ export default function Dashboard() {
       </div>
 
       {/* AI consultant card */}
-      <div style={{ background: '#E8002A', borderRadius: '14px', padding: '20px 24px', marginBottom: '18px', display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>🤖</div>
+      <div style={{ background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 60%, #4338CA 100%)', borderRadius: '14px', padding: '20px 24px', marginBottom: '18px', display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
+        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>🤖</div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
             <span style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>AI Consultant: Mid-Shift Narrative</span>
-            <span style={{ background: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 8px', borderRadius: '99px' }}>LIVE INSIGHT</span>
+            <span style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 8px', borderRadius: '99px' }}>LIVE INSIGHT</span>
           </div>
-          <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: '13px', lineHeight: 1.6, margin: '0 0 14px' }}>
+          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', lineHeight: 1.6, margin: '0 0 14px' }}>
             {i18n.language === 'vi'
               ? `Hôm nay có ${covers} lượt khách với doanh thu ${formatVnd(todayRevenue)}. ${occupied > 0 ? `Hiện có ${occupied} bàn đang sử dụng.` : 'Chưa có bàn nào.'} ${activeInsights.length > 0 ? `Có ${activeInsights.length} cảnh báo cần xử lý.` : 'Không có cảnh báo.'}`
               : `Today logged ${covers} covers — revenue ${formatVnd(todayRevenue)}. ${occupied > 0 ? `${occupied}/${tables.length} tables active.` : 'No tables occupied yet.'} ${activeInsights.length > 0 ? `${activeInsights.length} alert${activeInsights.length > 1 ? 's' : ''} need attention.` : 'No active alerts.'}`}
           </p>
-          <Link to="/consultant" style={{ border: '1px solid rgba(255,255,255,0.5)', color: 'white', background: 'transparent', borderRadius: '8px', padding: '7px 16px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textDecoration: 'none' }}>Open AI Consultant →</Link>
+          <Link to="/consultant" style={{ border: '1px solid rgba(255,255,255,0.4)', color: 'white', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '7px 16px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textDecoration: 'none' }}>Open AI Consultant →</Link>
         </div>
       </div>
 

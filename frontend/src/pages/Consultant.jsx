@@ -219,7 +219,7 @@ export default function Consultant() {
       )}
 
       {/* Bottom bar — chips + input */}
-      <div style={{ flexShrink: 0, background: 'var(--pp-page-bg)', paddingTop: '10px', borderTop: '1px solid var(--pp-border)', marginTop: '8px' }}>
+      <div style={{ flexShrink: 0, background: '#F2F2F7', paddingTop: '10px', borderTop: '1px solid #E5E5EA', marginTop: '8px' }}>
         {Array.isArray(quickPrompts) && (
           <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
             {quickPrompts.map((q) => (

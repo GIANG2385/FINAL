@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { db } from '../services/firebase'
+import { MENU_ITEMS } from '../data/menu'
 
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
@@ -60,6 +61,14 @@ export default function BackOfHouse() {
   const [orders, setOrders] = useState(null)
   const [inventoryRaw, setInventoryRaw] = useState(null)
   const [localStock, setLocalStock] = useState({})
+  const [localUnitCost, setLocalUnitCost] = useState({})
+  const [menuItems, setMenuItems] = useState(null)
+  const [showAddDish, setShowAddDish] = useState(false)
+  const [newDish, setNewDish] = useState({ name_en: '', name_vi: '', unit_price: '' })
+  const [addIngredientTo, setAddIngredientTo] = useState(null)
+  const [newIngredient, setNewIngredient] = useState({ ingredient_sku: '', qty: '' })
+  const [recipeError, setRecipeError] = useState(null)
+  const seededRef = useRef(false)
 
   useEffect(() => {
     const unsubShifts = onSnapshot(collection(db, 'staff_shifts'), (snap) => {
@@ -73,7 +82,24 @@ export default function BackOfHouse() {
     const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
       setInventoryRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    return () => { unsubShifts(); unsubOrders(); unsubInv() }
+    const unsubMenu = onSnapshot(collection(db, 'menu_items'), async (snap) => {
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setMenuItems(items)
+      // Auto-seed from hardcoded MENU_ITEMS if collection is empty
+      if (items.length === 0 && !seededRef.current) {
+        seededRef.current = true
+        const batch = writeBatch(db)
+        for (const m of MENU_ITEMS) {
+          const ref = doc(collection(db, 'menu_items'))
+          batch.set(ref, {
+            sku: m.sku, name_en: m.name_en, name_vi: m.name_vi,
+            unit_price: m.unit_price, recipes: m.recipes || [],
+          })
+        }
+        await batch.commit()
+      }
+    })
+    return () => { unsubShifts(); unsubOrders(); unsubInv(); unsubMenu() }
   }, [])
 
   // Compute profit from Firestore data (same logic as backend profitController)
@@ -113,13 +139,67 @@ export default function BackOfHouse() {
   }
 
   async function saveStock(item) {
-    const newVal = getStock(item)
+    const updates = { current_stock: getStock(item) }
+    if (localUnitCost[item.sku] !== undefined) updates.unit_cost = localUnitCost[item.sku]
     try {
-      await updateDoc(doc(db, 'inventory', item.id), { current_stock: newVal })
+      await updateDoc(doc(db, 'inventory', item.id), updates)
       setLocalStock((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
-    } catch (e) {
-      console.error(e)
-    }
+      setLocalUnitCost((prev) => { const next = { ...prev }; delete next[item.sku]; return next })
+    } catch (e) { console.error(e) }
+  }
+
+  const invMap = useMemo(() => {
+    const map = {}
+    for (const inv of (inventoryRaw || [])) map[inv.sku] = inv
+    return map
+  }, [inventoryRaw])
+
+  async function handleAddDish() {
+    const name_en = newDish.name_en.trim()
+    const name_vi = newDish.name_vi.trim()
+    const unit_price = Number(newDish.unit_price)
+    if (!name_en || !name_vi || !unit_price) { setRecipeError('All fields required'); return }
+    try {
+      await addDoc(collection(db, 'menu_items'), {
+        sku: `M-${name_en.toUpperCase().replace(/\s+/g, '-').slice(0, 20)}-${Date.now().toString(36).slice(-4)}`,
+        name_en, name_vi, unit_price, recipes: [],
+      })
+      setNewDish({ name_en: '', name_vi: '', unit_price: '' })
+      setShowAddDish(false)
+      setRecipeError(null)
+    } catch (e) { console.error(e); setRecipeError('Error saving') }
+  }
+
+  async function handleDeleteDish(dishId) {
+    if (!window.confirm(i18n.language === 'vi' ? 'Xoá món này?' : 'Delete this dish?')) return
+    try { await deleteDoc(doc(db, 'menu_items', dishId)) } catch (e) { console.error(e) }
+  }
+
+  async function handleAddIngredient(dish) {
+    const sku = newIngredient.ingredient_sku
+    const qty = parseFloat(newIngredient.qty)
+    if (!sku || !qty || qty <= 0) { setRecipeError('Select an ingredient and enter quantity'); return }
+    const exists = (dish.recipes || []).some((r) => r.ingredient_sku === sku)
+    if (exists) { setRecipeError('Ingredient already in recipe'); return }
+    const inv = invMap[sku]
+    const updated = [...(dish.recipes || []), { ingredient_sku: sku, ingredient_name_en: inv?.name_en || sku, ingredient_name_vi: inv?.name_vi || sku, qty, unit: inv?.unit || '' }]
+    try {
+      await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated })
+      setNewIngredient({ ingredient_sku: '', qty: '' })
+      setAddIngredientTo(null)
+      setRecipeError(null)
+    } catch (e) { console.error(e); setRecipeError('Error saving') }
+  }
+
+  async function handleDeleteIngredient(dish, ingredientSku) {
+    const updated = (dish.recipes || []).filter((r) => r.ingredient_sku !== ingredientSku)
+    try { await updateDoc(doc(db, 'menu_items', dish.id), { recipes: updated }) } catch (e) { console.error(e) }
+  }
+
+  async function handleUpdateDishPrice(dish, newPrice) {
+    const price = Number(newPrice)
+    if (!price || price <= 0) return
+    try { await updateDoc(doc(db, 'menu_items', dish.id), { unit_price: price }) } catch (e) { console.error(e) }
   }
 
   const now = new Date()
@@ -136,6 +216,7 @@ export default function BackOfHouse() {
 
   const tabs = [
     { id: 'inventory', label: i18n.language === 'vi' ? 'Tồn kho' : 'Inventory' },
+    { id: 'recipes',   label: i18n.language === 'vi' ? 'Công thức' : 'Recipes' },
     { id: 'labor',     label: i18n.language === 'vi' ? 'Nhân sự' : 'Labor' },
     { id: 'supply',    label: i18n.language === 'vi' ? 'Cung ứng & Doanh thu' : 'Supply & Revenue' },
   ]
@@ -165,7 +246,7 @@ export default function BackOfHouse() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead>
                   <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
-                    {[t('boh.item'), t('boh.stock'), t('boh.par'), t('boh.stockoutProjection'), i18n.language === 'vi' ? 'Cập nhật' : 'Update'].map((h) => (
+                    {[t('boh.item'), t('boh.stock'), t('boh.par'), t('boh.stockoutProjection'), i18n.language === 'vi' ? 'Giá/đơn vị' : 'Cost/unit', i18n.language === 'vi' ? 'Cập nhật' : 'Update'].map((h) => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
                     ))}
                   </tr>
@@ -187,6 +268,15 @@ export default function BackOfHouse() {
                           {item.stockout_at ? t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) }) : '—'}
                         </td>
                         <td style={{ padding: '12px' }}>
+                          <input
+                            type="number" min="0" step="100"
+                            value={localUnitCost[item.sku] !== undefined ? localUnitCost[item.sku] : (item.unit_cost ?? '')}
+                            placeholder="0"
+                            onChange={(e) => setLocalUnitCost((p) => ({ ...p, [item.sku]: parseFloat(e.target.value) || 0 }))}
+                            style={{ width: '80px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
+                          />
+                        </td>
+                        <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <button onClick={() => updateStock(item.sku, stock - 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>−</button>
                             <input type="number" value={stock} step="0.5" min="0"
@@ -194,7 +284,7 @@ export default function BackOfHouse() {
                               style={{ width: '60px', padding: '3px 6px', border: '1px solid var(--pp-border)', borderRadius: '4px', fontSize: '13px', textAlign: 'center' }}
                             />
                             <button onClick={() => updateStock(item.sku, stock + 0.5)} style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>+</button>
-                            {localStock[item.sku] !== undefined && (
+                            {(localStock[item.sku] !== undefined || localUnitCost[item.sku] !== undefined) && (
                               <button
                                 onClick={() => saveStock(item)}
                                 style={{ padding: '2px 10px', borderRadius: '4px', border: 'none', background: 'var(--pp-primary)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
@@ -214,7 +304,219 @@ export default function BackOfHouse() {
         </div>
       )}
 
-      {/* ── Tab B: Labor ── */}
+      {/* ── Tab B: Recipes ── */}
+      {activeTab === 'recipes' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>
+              {i18n.language === 'vi' ? 'Công thức món ăn' : 'Dish Recipes'}
+            </h2>
+            <button
+              onClick={() => { setShowAddDish(true); setRecipeError(null) }}
+              style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+            >
+              + {i18n.language === 'vi' ? 'Thêm món mới' : 'Add Dish'}
+            </button>
+          </div>
+
+          {recipeError && (
+            <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '12px' }}>{recipeError}</p>
+          )}
+
+          {/* Add Dish Form */}
+          {showAddDish && (
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+              <p style={{ fontWeight: 600, fontSize: '14px', margin: '0 0 12px' }}>
+                {i18n.language === 'vi' ? 'Tạo món mới' : 'New Dish'}
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <input
+                  placeholder="Name (EN)"
+                  value={newDish.name_en}
+                  onChange={(e) => setNewDish((d) => ({ ...d, name_en: e.target.value }))}
+                  style={{ flex: 1, minWidth: '140px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+                />
+                <input
+                  placeholder="Tên (VI)"
+                  value={newDish.name_vi}
+                  onChange={(e) => setNewDish((d) => ({ ...d, name_vi: e.target.value }))}
+                  style={{ flex: 1, minWidth: '140px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+                />
+                <input
+                  type="number" placeholder={i18n.language === 'vi' ? 'Giá (VND)' : 'Price (VND)'}
+                  value={newDish.unit_price}
+                  onChange={(e) => setNewDish((d) => ({ ...d, unit_price: e.target.value }))}
+                  style={{ width: '130px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleAddDish} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '7px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Tạo' : 'Create'}
+                </button>
+                <button onClick={() => { setShowAddDish(false); setRecipeError(null) }} style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '7px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Huỷ' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Dish Cards */}
+          {menuItems === null ? (
+            <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
+          ) : menuItems.length === 0 ? (
+            <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>
+              {i18n.language === 'vi' ? 'Chưa có món nào' : 'No dishes yet'}
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {menuItems.map((dish) => {
+                const dishCost = (dish.recipes || []).reduce((sum, r) => {
+                  const inv = invMap[r.ingredient_sku]
+                  return sum + r.qty * (inv?.unit_cost ?? 0)
+                }, 0)
+                const hasCost = (dish.recipes || []).some((r) => invMap[r.ingredient_sku]?.unit_cost)
+                const margin = dish.unit_price && dishCost ? ((dish.unit_price - dishCost) / dish.unit_price * 100).toFixed(1) : null
+
+                return (
+                  <div key={dish.id} style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', overflow: 'hidden' }}>
+                    {/* Dish header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 16px', borderBottom: '1px solid var(--pp-border)', background: 'var(--pp-yellow)' }}>
+                      <div>
+                        <p style={{ fontWeight: 700, fontSize: '15px', margin: '0 0 2px' }}>
+                          {i18n.language === 'vi' ? dish.name_vi : dish.name_en}
+                          <span style={{ fontWeight: 400, fontSize: '12px', color: 'var(--pp-text-muted)', marginLeft: '8px' }}>
+                            {i18n.language === 'vi' ? dish.name_en : dish.name_vi}
+                          </span>
+                        </p>
+                        <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--pp-text-muted)', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span>
+                            {i18n.language === 'vi' ? 'Giá bán:' : 'Price:'}
+                            {' '}
+                            <input
+                              type="number" defaultValue={dish.unit_price} min="0"
+                              onBlur={(e) => handleUpdateDishPrice(dish, e.target.value)}
+                              style={{ width: '90px', border: '1px solid var(--pp-border)', borderRadius: '4px', padding: '2px 6px', fontSize: '13px' }}
+                            />
+                          </span>
+                          <span style={{ color: hasCost ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
+                            {i18n.language === 'vi' ? 'Giá vốn:' : 'Cost:'} {hasCost ? formatVnd(dishCost, i18n.language) : '—'}
+                          </span>
+                          {margin && (
+                            <span style={{ color: Number(margin) >= 60 ? 'var(--pp-success-text)' : Number(margin) >= 30 ? 'var(--pp-warning-text)' : 'var(--pp-danger-text)', fontWeight: 600 }}>
+                              {i18n.language === 'vi' ? 'Biên lợi:' : 'Margin:'} {margin}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteDish(dish.id)}
+                        style={{ background: 'transparent', border: '1px solid var(--pp-danger-text)', color: 'var(--pp-danger-text)', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >
+                        {i18n.language === 'vi' ? 'Xoá món' : 'Delete Dish'}
+                      </button>
+                    </div>
+
+                    {/* Ingredients table */}
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--pp-neutral-bg)' }}>
+                          {[
+                            i18n.language === 'vi' ? 'Nguyên liệu' : 'Ingredient',
+                            i18n.language === 'vi' ? 'Lượng dùng/phần' : 'Qty/serving',
+                            i18n.language === 'vi' ? 'Chi phí/phần' : 'Cost/serving',
+                            '',
+                          ].map((h, i) => (
+                            <th key={i} style={{ padding: '8px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(dish.recipes || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={4} style={{ padding: '12px', color: 'var(--pp-text-hint)', fontSize: '13px' }}>
+                              {i18n.language === 'vi' ? 'Chưa có nguyên liệu' : 'No ingredients yet'}
+                            </td>
+                          </tr>
+                        ) : (dish.recipes || []).map((r) => {
+                          const inv = invMap[r.ingredient_sku]
+                          const lineCost = r.qty * (inv?.unit_cost ?? 0)
+                          return (
+                            <tr key={r.ingredient_sku} style={{ borderTop: '1px solid var(--pp-border)' }}>
+                              <td style={{ padding: '10px 12px', fontWeight: 500 }}>
+                                {i18n.language === 'vi' ? (inv?.name_vi || r.ingredient_name_vi || r.ingredient_sku) : (inv?.name_en || r.ingredient_name_en || r.ingredient_sku)}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: 'var(--pp-text-muted)' }}>
+                                {r.qty} {inv?.unit || ''}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: inv?.unit_cost ? 'var(--pp-text)' : 'var(--pp-text-hint)' }}>
+                                {inv?.unit_cost ? formatVnd(lineCost, i18n.language) : '—'}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <button
+                                  onClick={() => handleDeleteIngredient(dish, r.ingredient_sku)}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}
+                                >✕</button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+
+                    {/* Add Ingredient */}
+                    <div style={{ padding: '10px 12px', borderTop: '1px solid var(--pp-border)' }}>
+                      {addIngredientTo === dish.id ? (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <select
+                            value={newIngredient.ingredient_sku}
+                            onChange={(e) => setNewIngredient((n) => ({ ...n, ingredient_sku: e.target.value }))}
+                            style={{ flex: 1, minWidth: '160px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '6px 8px', fontSize: '13px' }}
+                          >
+                            <option value="">{i18n.language === 'vi' ? '— Chọn nguyên liệu —' : '— Select ingredient —'}</option>
+                            {(inventoryRaw || []).map((inv) => (
+                              <option key={inv.sku} value={inv.sku}>
+                                {i18n.language === 'vi' ? inv.name_vi : inv.name_en} ({inv.unit})
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number" min="0" step="0.01"
+                            placeholder={i18n.language === 'vi' ? 'Lượng dùng' : 'Qty'}
+                            value={newIngredient.qty}
+                            onChange={(e) => setNewIngredient((n) => ({ ...n, qty: e.target.value }))}
+                            style={{ width: '90px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '6px 8px', fontSize: '13px' }}
+                          />
+                          <button
+                            onClick={() => handleAddIngredient(dish)}
+                            style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            {i18n.language === 'vi' ? 'Thêm' : 'Add'}
+                          </button>
+                          <button
+                            onClick={() => { setAddIngredientTo(null); setNewIngredient({ ingredient_sku: '', qty: '' }); setRecipeError(null) }}
+                            style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '6px 10px', fontSize: '13px', cursor: 'pointer' }}
+                          >
+                            {i18n.language === 'vi' ? 'Huỷ' : 'Cancel'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setAddIngredientTo(dish.id); setNewIngredient({ ingredient_sku: '', qty: '' }); setRecipeError(null) }}
+                          style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '5px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--pp-text-muted)' }}
+                        >
+                          + {i18n.language === 'vi' ? 'Thêm nguyên liệu' : 'Add ingredient'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab C: Labor ── */}
       {activeTab === 'labor' && (
         <div>
           <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.labor')}</h2>

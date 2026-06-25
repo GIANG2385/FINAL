@@ -68,6 +68,7 @@ export default function FrontOfHouse() {
   const [noteInput, setNoteInput] = useState('')
   const [addingMore, setAddingMore] = useState(false)
   const [inventory, setInventory] = useState(null)
+  const [firestoreMenu, setFirestoreMenu] = useState(null)
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -89,7 +90,11 @@ export default function FrontOfHouse() {
     const unsubInv = onSnapshot(collection(db, 'inventory'), (snap) => {
       setInventory(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-    return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes(); unsubInv() }
+    const unsubMenu = onSnapshot(collection(db, 'menu_items'), (snap) => {
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setFirestoreMenu(items.length > 0 ? items : null)
+    })
+    return () => { unsubTables(); unsubOrders(); unsubQueue(); unsubRes(); unsubInv(); unsubMenu() }
   }, [])
 
   // Find the active (unpaid or in-progress) order for the selected table
@@ -140,14 +145,17 @@ export default function FrontOfHouse() {
     return map
   }, [inventory])
 
+  // Use Firestore menu items when available, fall back to hardcoded for loading state
+  const activeMenu = firestoreMenu || MENU_ITEMS
+
   // Set of menu item SKUs that cannot be ordered due to insufficient stock
   const unavailableSkus = useMemo(() => {
     return new Set(
-      MENU_ITEMS.filter((m) =>
+      activeMenu.filter((m) =>
         (m.recipes || []).some((r) => (invMap[r.ingredient_sku]?.current_stock ?? 0) < r.qty)
       ).map((m) => m.sku)
     )
-  }, [invMap])
+  }, [invMap, activeMenu])
 
   if (tables === null || orders === null) {
     return <div style={{ padding: '28px 32px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</div>
@@ -155,7 +163,7 @@ export default function FrontOfHouse() {
 
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0)
   const cartTotal = cartItems.reduce((sum, [sku, qty]) => {
-    const item = MENU_ITEMS.find((m) => m.sku === sku)
+    const item = activeMenu.find((m) => m.sku === sku)
     return sum + (item?.unit_price ?? 0) * qty
   }, 0)
 
@@ -163,7 +171,7 @@ export default function FrontOfHouse() {
   function addInventoryDeductions(batch, orderItems) {
     const deductions = {}
     for (const item of orderItems) {
-      const menuItem = MENU_ITEMS.find((m) => m.sku === item.sku)
+      const menuItem = activeMenu.find((m) => m.sku === item.sku)
       for (const recipe of (menuItem?.recipes || [])) {
         deductions[recipe.ingredient_sku] = (deductions[recipe.ingredient_sku] || 0) + recipe.qty * item.qty
       }
@@ -184,7 +192,7 @@ export default function FrontOfHouse() {
     setBusy(true); setError(null)
     try {
       const resolvedItems = cartItems.map(([sku, qty]) => {
-        const item = MENU_ITEMS.find((m) => m.sku === sku)
+        const item = activeMenu.find((m) => m.sku === sku)
         return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
       })
       const total_amount = resolvedItems.reduce((s, i) => s + i.unit_price * i.qty, 0)
@@ -266,7 +274,7 @@ export default function FrontOfHouse() {
       const existingItems = snap.data()?.items || []
 
       const newItems = cartItems.map(([sku, qty]) => {
-        const item = MENU_ITEMS.find((m) => m.sku === sku)
+        const item = activeMenu.find((m) => m.sku === sku)
         return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
       })
 
@@ -661,7 +669,7 @@ export default function FrontOfHouse() {
                       <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
                         {i18n.language === 'vi' ? 'Chọn món để tạo đơn hàng mới' : 'Select items to create a new order'}
                       </p>
-                      {MENU_ITEMS.map((item) => {
+                      {activeMenu.map((item) => {
                         const outOfStock = unavailableSkus.has(item.sku)
                         return (
                           <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)', opacity: outOfStock ? 0.5 : 1 }}>
@@ -769,7 +777,7 @@ export default function FrontOfHouse() {
                           <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
                             {i18n.language === 'vi' ? 'Thêm món vào đơn hiện tại' : 'Add items to current order'}
                           </p>
-                          {MENU_ITEMS.map((item) => {
+                          {activeMenu.map((item) => {
                             const outOfStock = unavailableSkus.has(item.sku)
                             return (
                               <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)', opacity: outOfStock ? 0.5 : 1 }}>

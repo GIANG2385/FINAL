@@ -153,7 +153,7 @@ export default function BackOfHouse() {
     : onShiftNow.length > 0 && recentOrderVolume < onShiftNow.length ? 'overstaffed' : 'ok'
 
   const tabs = [
-    { id: 'kitchen',   label: i18n.language === 'vi' ? 'Bếp' : 'Kitchen' },
+    { id: 'kitchen',   label: t('boh.kitchen') },
     { id: 'inventory', label: i18n.language === 'vi' ? 'Tồn kho' : 'Inventory' },
     { id: 'labor',     label: i18n.language === 'vi' ? 'Nhân sự' : 'Labor' },
     { id: 'supply',    label: i18n.language === 'vi' ? 'Cung ứng & Doanh thu' : 'Supply & Revenue' },
@@ -177,7 +177,7 @@ export default function BackOfHouse() {
       {activeTab === 'kitchen' && (
         <div>
           <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px' }}>
-            {i18n.language === 'vi' ? 'Màn hình bếp' : 'Kitchen Display'}
+            {t('boh.kitchenDisplay')}
           </h2>
           {kitchenQueue === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>
@@ -188,9 +188,9 @@ export default function BackOfHouse() {
             const cooking    = kitchenQueue.filter((q) => q.status === 'in_progress')
             const done       = kitchenQueue.filter((q) => q.status === 'ready' || q.status === 'completed')
             const columns = [
-              { label: i18n.language === 'vi' ? 'Chờ' : 'Pending',   items: pending, border: '#CBD5E1', headerBg: '#F1F5F9', headerColor: '#374151' },
-              { label: i18n.language === 'vi' ? 'Đang nấu' : 'Cooking', items: cooking, border: '#FCD34D', headerBg: '#FFFBEB', headerColor: '#92400E' },
-              { label: i18n.language === 'vi' ? 'Xong' : 'Ready',    items: done,    border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
+              { label: t('boh.kanban.pending'),   items: pending, border: '#CBD5E1', headerBg: '#F1F5F9', headerColor: '#374151' },
+              { label: t('boh.kanban.inKitchen'), items: cooking, border: '#FCD34D', headerBg: '#FFFBEB', headerColor: '#92400E' },
+              { label: t('boh.kanban.completed'), items: done,    border: '#86EFAC', headerBg: '#F0FDF4', headerColor: '#166534' },
             ]
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px' }}>

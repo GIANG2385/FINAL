@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  addDoc, collection, doc, onSnapshot, query,
+  addDoc, collection, doc, getDoc, onSnapshot, query,
   runTransaction, serverTimestamp, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
@@ -32,7 +32,6 @@ const TABLE_COLORS = {
 }
 
 const AVG_OCCUPIED_MIN = 60  // avg dining time 60 min (1 hr turn)
-const PAYMENT_METHODS = ['cash', 'card', 'momo']
 
 const tabBtn = (active) => ({
   padding: '10px 20px',
@@ -65,6 +64,7 @@ export default function FrontOfHouse() {
   const [formError, setFormError] = useState(null)
   const [editingNoteId, setEditingNoteId] = useState(null)
   const [noteInput, setNoteInput] = useState('')
+  const [addingMore, setAddingMore] = useState(false)
 
   useEffect(() => {
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
@@ -213,6 +213,44 @@ export default function FrontOfHouse() {
       console.error(e)
       setError(t('common.error'))
     } finally { setBusy(false) }
+  }
+
+  async function handleAddMoreItems(orderId) {
+    if (cartItems.length === 0) return
+    setBusy(true); setError(null)
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      const snap = await getDoc(orderRef)
+      const existingItems = snap.data()?.items || []
+
+      const newItems = cartItems.map(([sku, qty]) => {
+        const item = MENU_ITEMS.find((m) => m.sku === sku)
+        return { sku: item.sku, name_en: item.name_en, name_vi: item.name_vi, unit_price: item.unit_price, qty }
+      })
+
+      const merged = [...existingItems]
+      for (const ni of newItems) {
+        const idx = merged.findIndex((e) => e.sku === ni.sku)
+        if (idx >= 0) {
+          merged[idx] = { ...merged[idx], qty: merged[idx].qty + ni.qty }
+        } else {
+          merged.push(ni)
+        }
+      }
+
+      const total_amount = merged.reduce((s, i) => s + i.unit_price * i.qty, 0)
+      await updateDoc(orderRef, { items: merged, total_amount, status: 'open' })
+      setCart({})
+      setAddingMore(false)
+    } catch (e) {
+      console.error(e)
+      setError(t('common.error'))
+    } finally { setBusy(false) }
+  }
+
+  async function handleInitVnpay(orderId, amount) {
+    // implemented in Task 10
+    console.log('VNPay stub', orderId, amount)
   }
 
   // ── Mark served ──
@@ -366,7 +404,7 @@ export default function FrontOfHouse() {
                 return (
                   <button
                     key={tb.table_id}
-                    onClick={() => { setSelectedTable(tb.table_id); setPaymentConfirmation(null); setError(null) }}
+                    onClick={() => { setSelectedTable(tb.table_id); setPaymentConfirmation(null); setError(null); setAddingMore(false) }}
                     style={{
                       borderRadius: '10px', padding: '12px 8px', textAlign: 'center', fontSize: '13px',
                       fontWeight: 500, cursor: 'pointer',
@@ -579,19 +617,67 @@ export default function FrontOfHouse() {
 
                   {activeOrder.status === 'served' && !activeOrder.payment_method && (
                     <div>
-                      <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>{t('foh.recordPayment')}</p>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        {PAYMENT_METHODS.map((method) => (
+                      {addingMore ? (
+                        <div>
+                          <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', marginBottom: '12px' }}>
+                            {i18n.language === 'vi' ? 'Thêm món vào đơn hiện tại' : 'Add items to current order'}
+                          </p>
+                          {MENU_ITEMS.map((item) => (
+                            <div key={item.sku} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid var(--pp-border)' }}>
+                              <div>
+                                <p style={{ fontSize: '14px', fontWeight: 500, margin: 0 }}>{i18n.language === 'vi' ? item.name_vi : item.name_en}</p>
+                                <p style={{ fontSize: '12px', color: 'var(--pp-text-muted)', margin: 0 }}>{formatVnd(item.unit_price, i18n.language)}</p>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button onClick={() => setCart((c) => ({ ...c, [item.sku]: Math.max(0, (c[item.sku] || 0) - 1) }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>−</button>
+                                <span style={{ width: '22px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>{cart[item.sku] || 0}</span>
+                                <button onClick={() => setCart((c) => ({ ...c, [item.sku]: (c[item.sku] || 0) + 1 }))} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--pp-border)', background: 'white', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>+</button>
+                              </div>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <button
+                              onClick={() => { setAddingMore(false); setCart({}) }}
+                              style={{ flex: 1, border: '1px solid var(--pp-border)', background: 'white', borderRadius: '99px', padding: '10px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              {t('common.cancel')}
+                            </button>
+                            <button
+                              disabled={busy || cartItems.length === 0}
+                              onClick={() => handleAddMoreItems(activeOrder.id)}
+                              style={{ flex: 1, background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', opacity: (busy || cartItems.length === 0) ? 0.5 : 1 }}
+                            >
+                              {busy ? '…' : (i18n.language === 'vi' ? 'Gửi bếp' : 'Send to Kitchen')}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>{t('foh.recordPayment')}</p>
+                          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                            <button
+                              disabled={busy}
+                              onClick={() => handleRecordPayment(activeOrder.id, 'cash', activeOrder.total_amount)}
+                              style={{ flex: 1, border: '2px solid var(--pp-border)', background: 'white', borderRadius: '8px', padding: '10px 6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+                            >
+                              💵 Cash
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => handleInitVnpay(activeOrder.id, activeOrder.total_amount)}
+                              style={{ flex: 1, border: '2px solid var(--pp-border)', background: 'white', borderRadius: '8px', padding: '10px 6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: busy ? 0.5 : 1 }}
+                            >
+                              📱 VNPay
+                            </button>
+                          </div>
                           <button
-                            key={method}
-                            disabled={busy}
-                            onClick={() => handleRecordPayment(activeOrder.id, method, activeOrder.total_amount)}
-                            style={{ flex: 1, border: '2px solid var(--pp-border)', background: 'white', borderRadius: '8px', padding: '10px 6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', opacity: busy ? 0.5 : 1 }}
+                            onClick={() => { setAddingMore(true); setCart({}) }}
+                            style={{ width: '100%', border: '2px solid var(--pp-primary)', background: 'transparent', color: 'var(--pp-primary)', borderRadius: '99px', padding: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
                           >
-                            {method === 'cash' ? '💵' : method === 'card' ? '💳' : '📱'} {method}
+                            {t('foh.addMoreItems')}
                           </button>
-                        ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

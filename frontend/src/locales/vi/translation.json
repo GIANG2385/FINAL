@@ -58,10 +58,13 @@
     "markServed": "Đánh dấu đã phục vụ",
     "recordPayment": "Ghi nhận thanh toán",
     "billFor": "Hóa đơn — {{table}}",
+    "orderReady": "Món đã xong! Đánh dấu đã phục vụ.",
     "orderStatus": {
-      "open": "Trống",
-      "in_kitchen": "Đang chế biến",
-      "served": "Đã phục vụ"
+      "open": "Mở",
+      "in_kitchen": "Đang nấu",
+      "ready": "Sẵn sàng",
+      "served": "Đã phục vụ",
+      "cancelled": "Đã huỷ"
     },
     "paymentReceived": "Đã nhận thanh toán",
     "startNewOrder": "Bắt đầu đơn mới",
@@ -95,11 +98,15 @@
     "foodCost": "Chi phí nguyên liệu",
     "laborCost": "Chi phí nhân công",
     "profit": "Lợi nhuận",
+    "kitchen": "Bếp",
     "kanban": {
-      "pending": "Đang chờ",
-      "inKitchen": "Đang làm",
-      "completed": "Hoàn thành"
+      "pending": "Chờ",
+      "inKitchen": "Đang nấu",
+      "completed": "Xong",
+      "startCooking": "Bắt đầu",
+      "markReady": "Xong ✓"
     },
+    "allReady": "Tất cả món đã xong",
     "delayAlert": "Đơn bàn {{table}} chờ >20 phút",
     "shiftTime": "{{start}} – {{end}}",
     "shiftStatus": { "on": "Đang ca", "off": "Nghỉ" },

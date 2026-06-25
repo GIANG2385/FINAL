@@ -58,10 +58,13 @@
     "markServed": "Mark Served",
     "recordPayment": "Record Payment",
     "billFor": "Bill — {{table}}",
+    "orderReady": "Food is ready! Mark as served.",
     "orderStatus": {
       "open": "Open",
       "in_kitchen": "In Kitchen",
-      "served": "Served"
+      "ready": "Ready",
+      "served": "Served",
+      "cancelled": "Cancelled"
     },
     "paymentReceived": "Payment received",
     "startNewOrder": "Start New Order",
@@ -95,11 +98,15 @@
     "foodCost": "Food Cost",
     "laborCost": "Labor Cost",
     "profit": "Profit",
+    "kitchen": "Kitchen",
     "kanban": {
       "pending": "Pending",
-      "inKitchen": "In Kitchen",
-      "completed": "Completed"
+      "inKitchen": "Cooking",
+      "completed": "Ready",
+      "startCooking": "Start",
+      "markReady": "Ready ✓"
     },
+    "allReady": "All items ready",
     "delayAlert": "Table {{table}} order waiting >20 min",
     "shiftTime": "{{start}} – {{end}}",
     "shiftStatus": { "on": "On Shift", "off": "Off" },

@@ -1,4 +1,5 @@
-import { db } from '../firebaseAdmin.js'
+// src/controllers/ordersController.js
+import { supabase } from '../supabaseClient.js'
 import { findMenuItem } from '../data/menu.js'
 
 export async function createOrder(req, res) {
@@ -18,35 +19,57 @@ export async function createOrder(req, res) {
   }
 
   const total_amount = resolvedItems.reduce((sum, it) => sum + it.unit_price * it.qty, 0)
-  const orderRef = db.collection('orders').doc()
 
-  await db.runTransaction(async (tx) => {
-    for (const item of resolvedItems) {
-      const invRef = db.collection('inventory').doc(item.ingredient_sku)
-      const invSnap = await tx.get(invRef)
-      if (invSnap.exists) {
-        const current = invSnap.data().current_stock ?? 0
-        const next = Math.max(0, current - item.ingredient_qty * item.qty)
-        tx.update(invRef, { current_stock: next })
-      }
+  // Decrement inventory (sequential, no transaction)
+  for (const item of resolvedItems) {
+    const { data: inv, error: invErr } = await supabase
+      .from('inventory')
+      .select('current_stock')
+      .eq('sku', item.ingredient_sku)
+      .single()
+    if (invErr && invErr.code !== 'PGRST116') {
+      return res.status(500).json({ error: invErr.message })
     }
+    if (inv) {
+      const next = Math.max(0, inv.current_stock - item.ingredient_qty * item.qty)
+      const { error: updErr } = await supabase
+        .from('inventory')
+        .update({ current_stock: next })
+        .eq('sku', item.ingredient_sku)
+      if (updErr) return res.status(500).json({ error: updErr.message })
+    }
+  }
 
-    tx.set(orderRef, {
-      channel: channel || 'dine_in',
-      items: resolvedItems.map(({ sku, name_en, name_vi, qty, unit_price }) => ({ sku, name_en, name_vi, qty, unit_price })),
-      table_id,
-      status: 'open',
-      created_at: new Date(),
-      served_at: null,
-      total_amount,
-      payment_method: null,
-    })
+  // Insert order
+  const orderId = crypto.randomUUID()
+  const orderRow = {
+    id: orderId,
+    channel: channel || 'dine_in',
+    items: resolvedItems.map(({ sku, name_en, name_vi, qty, unit_price }) => ({
+      sku, name_en, name_vi, qty, unit_price,
+    })),
+    table_id,
+    status: 'open',
+    created_at: new Date().toISOString(),
+    served_at: null,
+    total_amount,
+    payment_method: null,
+  }
+  const { data: created, error: orderErr } = await supabase
+    .from('orders')
+    .insert(orderRow)
+    .select()
+    .single()
+  if (orderErr) return res.status(500).json({ error: orderErr.message })
 
-    tx.update(db.collection('tables').doc(table_id), { status: 'dining', seated_at: new Date() })
-  })
+  // Update table status
+  const { error: tableErr } = await supabase
+    .from('tables')
+    .update({ status: 'dining', seated_at: new Date().toISOString() })
+    .eq('table_id', table_id)
+  if (tableErr) console.error('table update failed:', tableErr.message)
 
-  const created = await orderRef.get()
-  res.status(201).json({ id: orderRef.id, ...created.data() })
+  res.status(201).json(created)
 }
 
 export async function updateOrderStatus(req, res) {
@@ -58,36 +81,43 @@ export async function updateOrderStatus(req, res) {
     return res.status(400).json({ error: `status must be one of ${validStatuses.join(', ')}` })
   }
 
-  const orderRef = db.collection('orders').doc(id)
-  const orderSnap = await orderRef.get()
-  if (!orderSnap.exists) {
-    return res.status(404).json({ error: 'Order not found' })
-  }
-  const order = orderSnap.data()
+  // Fetch existing order
+  const { data: order, error: fetchErr } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (fetchErr) return res.status(404).json({ error: 'Order not found' })
 
   const update = { status }
-  if (status === 'served') update.served_at = new Date()
+  if (status === 'served') update.served_at = new Date().toISOString()
 
-  await orderRef.update(update)
+  const { data: updated, error: updateErr } = await supabase
+    .from('orders')
+    .update(update)
+    .eq('id', id)
+    .select()
+    .single()
+  if (updateErr) return res.status(500).json({ error: updateErr.message })
 
+  // Insert kitchen queue rows when status transitions to in_kitchen
   if (status === 'in_kitchen') {
-    const batch = db.batch()
-    for (const item of order.items) {
-      const queueRef = db.collection('kitchen_queue').doc()
-      batch.set(queueRef, {
-        order_id: id,
-        item_sku: item.sku,
-        station: 'kitchen',
-        status: 'queued',
-        queued_at: new Date(),
-        started_at: null,
-        completed_at: null,
-        prep_time_target_min: 15,
-      })
+    const queueRows = (order.items || []).map((item) => ({
+      queue_id: crypto.randomUUID(),
+      order_id: id,
+      item_sku: item.sku,
+      station: 'kitchen',
+      status: 'queued',
+      queued_at: new Date().toISOString(),
+      started_at: null,
+      completed_at: null,
+      prep_time_target_min: 15,
+    }))
+    if (queueRows.length > 0) {
+      const { error: qErr } = await supabase.from('kitchen_queue').insert(queueRows)
+      if (qErr) console.error('kitchen_queue insert failed:', qErr.message)
     }
-    await batch.commit()
   }
 
-  const updated = await orderRef.get()
-  res.json({ id, ...updated.data() })
+  res.json(updated)
 }

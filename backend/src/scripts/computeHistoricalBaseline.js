@@ -1,9 +1,7 @@
-// One-off precompute: scans the historical (pre-today) served orders ONCE
-// and stores the resulting baseline in a single Firestore doc, so live
-// requests don't re-scan the entire orders collection on every call.
-// Re-run this manually if more historical data is loaded later.
+// src/scripts/computeHistoricalBaseline.js
+// One-off precompute: scans pre-today served orders and stores a baseline in
+// Supabase analytics_baseline. Re-run if more historical data is added.
 import 'dotenv/config'
-import { db } from '../firebaseAdmin.js'
 import { supabase } from '../supabaseClient.js'
 
 function startOfToday() {
@@ -63,9 +61,18 @@ for (let h = 0; h < 24; h++) {
   byHour[h] = days > 0 ? Math.round((hourRevenue.get(h) || 0) / days) : 0
 }
 
-const baseline = { distinctDays, avgDailyRevenue, byWeekday, byHour, computed_at: new Date() }
+const { error: upsertErr } = await supabase
+  .from('analytics_baseline')
+  .upsert({
+    id: 'historical_baseline',
+    distinct_days: distinctDays,
+    avg_daily_revenue: avgDailyRevenue,
+    by_weekday: byWeekday,
+    by_hour: byHour,
+    computed_at: new Date().toISOString(),
+  })
+if (upsertErr) { console.error(upsertErr.message); process.exit(1) }
 
-await db.collection('analytics').doc('historical_baseline').set(baseline)
 console.log(`Computed baseline from ${allOrders.length} historical orders across ${distinctDays} days.`)
 console.log('avgDailyRevenue:', avgDailyRevenue)
 process.exit(0)

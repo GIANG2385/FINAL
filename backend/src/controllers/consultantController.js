@@ -38,7 +38,7 @@ async function buildDataSnapshot() {
   // ── Revenue (today's served orders from Supabase) ────────────────────────
   const { data: todayOrders = [] } = await supabase
     .from('orders')
-    .select('total_amount, status, items')
+    .select('total_amount, status, items, created_at, served_at')
     .eq('status', 'served')
     .gte('served_at', today.toISOString())
   const revenue = todayOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
@@ -154,12 +154,21 @@ async function buildDataSnapshot() {
 
   // Wait time: items currently in queue (queued_at → now)
   const activeQueueItems = queueRows.filter((q) => q.status !== 'ready' && q.queued_at)
-  const currentWaitTimes = activeQueueItems.map((q) => (now - new Date(q.queued_at)) / 60000)
+  const activeQueueWithWait = activeQueueItems.map((q) => ({
+    table_id: q.table_id,
+    item_name: q.item_name_en || q.item_name || q.item_sku,
+    status: q.status,
+    waitMin: Math.round((now - new Date(q.queued_at)) / 60000),
+  }))
+  const currentWaitTimes = activeQueueWithWait.map((q) => q.waitMin)
   const avgCurrentWaitMin = currentWaitTimes.length > 0
     ? Math.round(currentWaitTimes.reduce((s, v) => s + v, 0) / currentWaitTimes.length)
     : null
   const longestWaitMin = currentWaitTimes.length > 0
     ? Math.round(Math.max(...currentWaitTimes))
+    : null
+  const longestWaitTable = activeQueueWithWait.length > 0
+    ? activeQueueWithWait.reduce((a, b) => a.waitMin >= b.waitMin ? a : b)
     : null
 
   // ── Insights ──────────────────────────────────────────────────────────────
@@ -198,6 +207,8 @@ async function buildDataSnapshot() {
       cookingVsTargetMin: cookingVsTarget,
       avgCurrentWaitMin,
       longestCurrentWaitMin: longestWaitMin,
+      longestWaitTable,
+      activeQueue: activeQueueWithWait,
     },
     staff: {
       onShiftNow: onShiftNow.length,
@@ -234,8 +245,13 @@ async function buildDataSnapshot() {
     }.`,
     '',
     `KITCHEN QUEUE: ${pendingCount} pending, ${inKitchenItems.length} in kitchen, ${delayedCount} delayed (>20 min).${
-      avgCurrentWaitMin !== null ? ` Avg current wait: ${avgCurrentWaitMin} min. Longest: ${longestWaitMin} min.` : ''
+      avgCurrentWaitMin !== null
+        ? ` Avg wait: ${avgCurrentWaitMin} min. Longest: ${longestWaitMin} min${longestWaitTable ? ` (Table ${longestWaitTable.table_id} — ${longestWaitTable.item_name}, ${longestWaitTable.waitMin} min)` : ''}.`
+        : ' No active queue items.'
     }`,
+    activeQueueWithWait.length > 0
+      ? `ACTIVE QUEUE DETAIL: ${activeQueueWithWait.map((q) => `Table ${q.table_id}: ${q.item_name} (${q.status}, ${q.waitMin} min)`).join(' | ')}.`
+      : '',
     avgCookMin !== null
       ? `COOK TIME (today): avg ${avgCookMin} min vs target ${avgTargetMin} min (${cookingVsTarget >= 0 ? '+' : ''}${cookingVsTarget} min ${cookingVsTarget > 0 ? 'over' : 'under'} target).`
       : 'COOK TIME: No completed kitchen items today yet.',

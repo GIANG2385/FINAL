@@ -66,6 +66,7 @@ export default function BackOfHouse() {
   const [activeTab, setActiveTab] = useState('inventory')
   const [staffShifts, setStaffShifts] = useState(null)
   const [orders, setOrders] = useState(null)
+  const [allOrders, setAllOrders] = useState(null)
   const [inventoryRaw, setInventoryRaw] = useState(null)
   const [localStock, setLocalStock] = useState({})
   const [localUnitCost, setLocalUnitCost] = useState({})
@@ -126,6 +127,12 @@ export default function BackOfHouse() {
         supabase.from('orders').select('*').gte('created_at', startOfToday).lt('created_at', endOfToday).then(({ data }) => setOrders(data || []))
       })
       .subscribe()
+
+    // ── orders (30 days) for export ──
+    const monthStart = new Date(); monthStart.setDate(monthStart.getDate() - 30); monthStart.setHours(0, 0, 0, 0)
+    supabase.from('orders').select('id,created_at,status,total_amount,payment_method,table_id').gte('created_at', monthStart.toISOString()).then(({ data }) => {
+      setAllOrders(data || [])
+    })
 
     // ── inventory ──
     supabase.from('inventory').select('*').then(async ({ data }) => {
@@ -1059,6 +1066,85 @@ export default function BackOfHouse() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Revenue Export */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{i18n.language === 'vi' ? 'Xuất báo cáo doanh thu' : 'Export Revenue Report'}</h2>
+            </div>
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', color: 'var(--pp-text-muted)', fontWeight: 500 }}>
+                {i18n.language === 'vi' ? 'Xuất theo khoảng thời gian:' : 'Export by period:'}
+              </span>
+              {[
+                { label: i18n.language === 'vi' ? 'Hôm nay' : 'Today', days: 0 },
+                { label: i18n.language === 'vi' ? '7 ngày' : '7 Days', days: 7 },
+                { label: i18n.language === 'vi' ? '30 ngày' : '30 Days', days: 30 },
+              ].map(({ label, days }) => (
+                <button
+                  key={days}
+                  onClick={() => {
+                    const cutoff = new Date()
+                    if (days === 0) cutoff.setHours(0, 0, 0, 0)
+                    else { cutoff.setDate(cutoff.getDate() - days); cutoff.setHours(0, 0, 0, 0) }
+
+                    const src = allOrders || []
+                    const inRange = src.filter((o) => new Date(o.created_at) >= cutoff)
+                    const served = inRange.filter((o) => o.status === 'served')
+                    const totalRevenue = served.reduce((s, o) => s + (o.total_amount || 0), 0)
+                    const avgOrderValue = served.length > 0 ? Math.round(totalRevenue / served.length) : 0
+
+                    // Group by day
+                    const byDay = {}
+                    for (const o of inRange) {
+                      const day = o.created_at.slice(0, 10)
+                      if (!byDay[day]) byDay[day] = { date: day, total_orders: 0, served_orders: 0, revenue: 0, cancelled: 0, payment_methods: {} }
+                      byDay[day].total_orders++
+                      if (o.status === 'served') { byDay[day].served_orders++; byDay[day].revenue += o.total_amount || 0 }
+                      if (o.status === 'cancelled') byDay[day].cancelled++
+                      const pm = o.payment_method || 'unknown'
+                      byDay[day].payment_methods[pm] = (byDay[day].payment_methods[pm] || 0) + 1
+                    }
+
+                    const rows = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date))
+
+                    // Summary header rows
+                    const summaryRows = [
+                      [`Period`, label],
+                      [`Total Orders`, inRange.length],
+                      [`Served Orders`, served.length],
+                      [`Total Revenue (VND)`, totalRevenue],
+                      [`Avg Order Value (VND)`, avgOrderValue],
+                      [`Cancelled Orders`, inRange.filter(o => o.status === 'cancelled').length],
+                      [],
+                      ['Date', 'Total Orders', 'Served', 'Cancelled', 'Revenue (VND)', 'Payment Methods'],
+                      ...rows.map((r) => [
+                        r.date,
+                        r.total_orders,
+                        r.served_orders,
+                        r.cancelled,
+                        r.revenue,
+                        Object.entries(r.payment_methods).map(([k, v]) => `${k}:${v}`).join('; '),
+                      ]),
+                    ]
+
+                    const csv = summaryRows.map((r) => Array.isArray(r) ? r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') : '').join('\n')
+                    const filename = `revenue_${label.toLowerCase().replace(/\s/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+                    const a = document.createElement('a')
+                    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+                    a.download = filename
+                    a.click()
+                  }}
+                  style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  ↓ {label}
+                </button>
+              ))}
+              {allOrders === null && (
+                <span style={{ fontSize: '12px', color: 'var(--pp-text-muted)' }}>{t('common.loading')}</span>
+              )}
+            </div>
           </div>
 
           {/* Revenue by Channel */}

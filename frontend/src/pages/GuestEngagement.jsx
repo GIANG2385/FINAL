@@ -63,12 +63,13 @@ export default function GuestEngagement() {
     }
     try {
       await supabase.from('reservations').insert({
+        reservation_id: crypto.randomUUID(),
         guest_name,
-        phone: newMember.phone.trim() || null,
         reservation_time: new Date().toISOString(),
         status: 'confirmed',
         party_size: 1,
         table_id: null,
+        note: newMember.phone.trim() ? `Phone: ${newMember.phone.trim()}` : null,
       })
       setNewMember({ guest_name: '', phone: '' })
       setShowAddMember(false)

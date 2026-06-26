@@ -69,6 +69,12 @@ export default function BackOfHouse() {
   const [recipeError, setRecipeError] = useState(null)
   const [editingIngredient, setEditingIngredient] = useState(null) // { dishId, ingredient_sku }
   const [editValues, setEditValues] = useState({ qty: '', cost_per_unit: '' })
+  const [showAddInventory, setShowAddInventory] = useState(false)
+  const [newInvItem, setNewInvItem] = useState({ name_en: '', name_vi: '', unit: '', current_stock: '', par_level: '' })
+  const [invError, setInvError] = useState(null)
+  const [showAddStaff, setShowAddStaff] = useState(false)
+  const [newStaff, setNewStaff] = useState({ name: '', role: '', shift_start: '', shift_end: '' })
+  const [staffError, setStaffError] = useState(null)
   const seededRef = useRef(false)
   const costSeededRef = useRef(false)
 
@@ -290,6 +296,56 @@ export default function BackOfHouse() {
     try { await supabase.from('menu_items').update({ unit_price: price }).eq('sku', dish.sku) } catch (e) { console.error(e) }
   }
 
+  async function handleAddInventoryItem() {
+    const name_en = newInvItem.name_en.trim()
+    const name_vi = newInvItem.name_vi.trim()
+    const unit = newInvItem.unit.trim()
+    const current_stock = parseFloat(newInvItem.current_stock)
+    const par_level = parseFloat(newInvItem.par_level)
+    if (!name_en || !name_vi || !unit || isNaN(current_stock) || isNaN(par_level)) {
+      setInvError(i18n.language === 'vi' ? 'Vui lòng điền đầy đủ thông tin' : 'All fields are required')
+      return
+    }
+    const sku = `INV-${name_en.toUpperCase().replace(/\s+/g, '-').slice(0, 12)}-${Date.now().toString(36).slice(-4)}`
+    try {
+      await supabase.from('inventory').insert({ sku, name_en, name_vi, unit, current_stock, par_level, avg_daily_consumption: 0 })
+      setNewInvItem({ name_en: '', name_vi: '', unit: '', current_stock: '', par_level: '' })
+      setShowAddInventory(false)
+      setInvError(null)
+    } catch (e) { console.error(e); setInvError(e.message || 'Error saving') }
+  }
+
+  async function handleDeleteInventoryItem(sku) {
+    const msg = i18n.language === 'vi' ? 'Xoá nguyên liệu này?' : 'Delete this ingredient?'
+    if (!window.confirm(msg)) return
+    try { await supabase.from('inventory').delete().eq('sku', sku) } catch (e) { console.error(e) }
+  }
+
+  async function handleAddStaff() {
+    const name = newStaff.name.trim()
+    const role = newStaff.role.trim()
+    if (!name || !role || !newStaff.shift_start || !newStaff.shift_end) {
+      setStaffError(i18n.language === 'vi' ? 'Vui lòng điền đầy đủ thông tin' : 'All fields are required')
+      return
+    }
+    try {
+      await supabase.from('staff_shifts').insert({
+        name, role,
+        shift_start: new Date(newStaff.shift_start).toISOString(),
+        shift_end: new Date(newStaff.shift_end).toISOString(),
+      })
+      setNewStaff({ name: '', role: '', shift_start: '', shift_end: '' })
+      setShowAddStaff(false)
+      setStaffError(null)
+    } catch (e) { console.error(e); setStaffError(e.message || 'Error saving') }
+  }
+
+  async function handleDeleteStaff(staffId) {
+    const msg = i18n.language === 'vi' ? 'Xoá ca làm này?' : 'Delete this shift?'
+    if (!window.confirm(msg)) return
+    try { await supabase.from('staff_shifts').delete().eq('staff_id', staffId) } catch (e) { console.error(e) }
+  }
+
   const now = new Date()
   const onShiftNow = (staffShifts || []).filter((s) => {
     const start = toDate(s.shift_start); const end = toDate(s.shift_end)
@@ -327,7 +383,67 @@ export default function BackOfHouse() {
       {/* ── Tab A: Inventory ── */}
       {activeTab === 'inventory' && (
         <div>
-          <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.inventory')}</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('boh.inventory')}</h2>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  const rows = (inventory || []).slice(0, 10)
+                  const headers = ['SKU', 'Name EN', 'Name VI', 'Unit', 'Stock', 'Par Level', 'Cost/unit', 'Hours Remaining']
+                  const csv = [headers, ...rows.map((r) => [r.sku, r.name_en, r.name_vi, r.unit, r.current_stock, r.par_level, r.cost_per_unit ?? '', r.hours_remaining ?? ''])].map((row) => row.join(',')).join('\n')
+                  const a = document.createElement('a')
+                  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+                  a.download = `inventory_${new Date().toISOString().slice(0,10)}.csv`
+                  a.click()
+                }}
+                style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                ↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}
+              </button>
+              <button
+                onClick={() => { setShowAddInventory(true); setInvError(null) }}
+                style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                + {i18n.language === 'vi' ? 'Thêm nguyên liệu' : 'Add Ingredient'}
+              </button>
+            </div>
+          </div>
+
+          {invError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{invError}</p>}
+
+          {showAddInventory && (
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+              <p style={{ fontWeight: 600, fontSize: '14px', margin: '0 0 12px' }}>
+                {i18n.language === 'vi' ? 'Nguyên liệu mới' : 'New Ingredient'}
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <input placeholder="Name (EN)" value={newInvItem.name_en}
+                  onChange={(e) => setNewInvItem((d) => ({ ...d, name_en: e.target.value }))}
+                  style={{ flex: 1, minWidth: '120px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <input placeholder="Tên (VI)" value={newInvItem.name_vi}
+                  onChange={(e) => setNewInvItem((d) => ({ ...d, name_vi: e.target.value }))}
+                  style={{ flex: 1, minWidth: '120px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <input placeholder={i18n.language === 'vi' ? 'Đơn vị (kg, L…)' : 'Unit (kg, L…)'} value={newInvItem.unit}
+                  onChange={(e) => setNewInvItem((d) => ({ ...d, unit: e.target.value }))}
+                  style={{ width: '100px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <input type="number" min="0" placeholder={i18n.language === 'vi' ? 'Tồn kho' : 'Stock'} value={newInvItem.current_stock}
+                  onChange={(e) => setNewInvItem((d) => ({ ...d, current_stock: e.target.value }))}
+                  style={{ width: '90px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <input type="number" min="0" placeholder={i18n.language === 'vi' ? 'Mức chuẩn' : 'Par level'} value={newInvItem.par_level}
+                  onChange={(e) => setNewInvItem((d) => ({ ...d, par_level: e.target.value }))}
+                  style={{ width: '100px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleAddInventoryItem} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '7px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Thêm' : 'Add'}
+                </button>
+                <button onClick={() => { setShowAddInventory(false); setInvError(null) }} style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '7px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Huỷ' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {inventory === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
           ) : (
@@ -335,13 +451,13 @@ export default function BackOfHouse() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead>
                   <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
-                    {[t('boh.item'), t('boh.stock'), t('boh.par'), t('boh.stockoutProjection'), i18n.language === 'vi' ? 'Giá/đơn vị' : 'Cost/unit', i18n.language === 'vi' ? 'Cập nhật' : 'Update'].map((h) => (
+                    {[t('boh.item'), t('boh.stock'), t('boh.par'), t('boh.stockoutProjection'), i18n.language === 'vi' ? 'Giá/đơn vị' : 'Cost/unit', i18n.language === 'vi' ? 'Cập nhật' : 'Update', ''].map((h) => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {inventory.map((item) => {
+                  {inventory.slice(0, 10).map((item) => {
                     const stock = getStock(item)
                     const parLevel = item.par_level
                     const rowStatus = stock <= 0 ? 'critical' : stock < parLevel * 0.3 ? 'critical' : stock < parLevel * 0.6 ? 'warning' : 'ok'
@@ -382,6 +498,13 @@ export default function BackOfHouse() {
                               </button>
                             )}
                           </div>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            onClick={() => handleDeleteInventoryItem(item.sku)}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
+                            title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
+                          >✕</button>
                         </td>
                       </tr>
                     )
@@ -655,7 +778,54 @@ export default function BackOfHouse() {
       {/* ── Tab C: Labor ── */}
       {activeTab === 'labor' && (
         <div>
-          <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.labor')}</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('boh.labor')}</h2>
+            <button
+              onClick={() => { setShowAddStaff(true); setStaffError(null) }}
+              style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+            >
+              + {i18n.language === 'vi' ? 'Thêm nhân viên' : 'Add Staff'}
+            </button>
+          </div>
+
+          {staffError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{staffError}</p>}
+
+          {showAddStaff && (
+            <div style={{ background: 'var(--pp-card-bg)', border: '1px solid var(--pp-border)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+              <p style={{ fontWeight: 600, fontSize: '14px', margin: '0 0 12px' }}>
+                {i18n.language === 'vi' ? 'Ca làm mới' : 'New Staff Shift'}
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <input placeholder={i18n.language === 'vi' ? 'Tên nhân viên' : 'Staff name'} value={newStaff.name}
+                  onChange={(e) => setNewStaff((s) => ({ ...s, name: e.target.value }))}
+                  style={{ flex: 1, minWidth: '140px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <input placeholder={i18n.language === 'vi' ? 'Vai trò' : 'Role'} value={newStaff.role}
+                  onChange={(e) => setNewStaff((s) => ({ ...s, role: e.target.value }))}
+                  style={{ flex: 1, minWidth: '120px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <label style={{ fontSize: '11px', color: 'var(--pp-text-muted)' }}>{i18n.language === 'vi' ? 'Bắt đầu' : 'Shift start'}</label>
+                  <input type="datetime-local" value={newStaff.shift_start}
+                    onChange={(e) => setNewStaff((s) => ({ ...s, shift_start: e.target.value }))}
+                    style={{ border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '6px 10px', fontSize: '13px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <label style={{ fontSize: '11px', color: 'var(--pp-text-muted)' }}>{i18n.language === 'vi' ? 'Kết thúc' : 'Shift end'}</label>
+                  <input type="datetime-local" value={newStaff.shift_end}
+                    onChange={(e) => setNewStaff((s) => ({ ...s, shift_end: e.target.value }))}
+                    style={{ border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '6px 10px', fontSize: '13px' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleAddStaff} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '7px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Thêm' : 'Add'}
+                </button>
+                <button onClick={() => { setShowAddStaff(false); setStaffError(null) }} style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '7px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                  {i18n.language === 'vi' ? 'Huỷ' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {staffShifts === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
           ) : (
@@ -672,7 +842,7 @@ export default function BackOfHouse() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                   <thead>
                     <tr style={{ background: 'var(--pp-yellow)', borderBottom: '1px solid var(--pp-border)' }}>
-                      {[i18n.language === 'vi' ? 'Nhân viên' : 'Staff', i18n.language === 'vi' ? 'Vai trò' : 'Role', i18n.language === 'vi' ? 'Ca làm' : 'Shift', i18n.language === 'vi' ? 'Trạng thái' : 'Status'].map((h) => (
+                      {[i18n.language === 'vi' ? 'Nhân viên' : 'Staff', i18n.language === 'vi' ? 'Vai trò' : 'Role', i18n.language === 'vi' ? 'Ca làm' : 'Shift', i18n.language === 'vi' ? 'Trạng thái' : 'Status', ''].map((h) => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--pp-text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -694,6 +864,13 @@ export default function BackOfHouse() {
                               background: isOn ? 'var(--pp-success-bg)' : 'var(--pp-neutral-bg)',
                               color: isOn ? 'var(--pp-success-text)' : 'var(--pp-neutral-text)',
                             }}>{isOn ? t('boh.shiftStatus.on') : t('boh.shiftStatus.off')}</span>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <button
+                              onClick={() => handleDeleteStaff(s.staff_id)}
+                              style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
+                              title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
+                            >✕</button>
                           </td>
                         </tr>
                       )

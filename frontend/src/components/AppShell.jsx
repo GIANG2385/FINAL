@@ -77,9 +77,6 @@ export default function AppShell({ children }) {
 
         {/* Bottom */}
         <div style={{ padding: '12px 8px 20px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-          <Link to="/settings" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 12px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', textDecoration: 'none', borderRadius: '6px' }}>
-            ⚙ Settings
-          </Link>
           <button onClick={handleLogout} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 12px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
             ⬡ Log Out
           </button>

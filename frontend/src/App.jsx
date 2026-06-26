@@ -3,7 +3,6 @@ import AppShell from './components/AppShell'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
-import Settings from './pages/Settings'
 import FrontOfHouse from './pages/FrontOfHouse'
 import BackOfHouse from './pages/BackOfHouse'
 import Insights from './pages/Insights'
@@ -26,7 +25,6 @@ export default function App() {
         <Route path="/guests" element={<ProtectedRoute><GuestEngagement /></ProtectedRoute>} />
         <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
         <Route path="/consultant" element={<ProtectedRoute allowedRoles={['manager', 'admin']}><Consultant /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       </Route>
     </Routes>
   )

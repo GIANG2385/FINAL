@@ -29,14 +29,15 @@ const TIER_STYLES = {
 export default function GuestEngagement() {
   const { t, i18n } = useTranslation()
   const [reservations, setReservations] = useState(null)
+  const [showAddMember, setShowAddMember] = useState(false)
+  const [newMember, setNewMember] = useState({ guest_name: '', phone: '' })
+  const [memberError, setMemberError] = useState(null)
 
   useEffect(() => {
-    // Initial fetch
     supabase.from('reservations').select('*').then(({ data }) => {
       setReservations(data || [])
     })
 
-    // Real-time subscription
     const channel = supabase.channel('reservations-guest')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
         supabase.from('reservations').select('*').then(({ data }) => setReservations(data || []))
@@ -45,6 +46,35 @@ export default function GuestEngagement() {
 
     return () => supabase.removeChannel(channel)
   }, [])
+
+  async function handleAddMember() {
+    const guest_name = newMember.guest_name.trim()
+    if (!guest_name) {
+      setMemberError(i18n.language === 'vi' ? 'Vui lòng nhập tên khách' : 'Guest name is required')
+      return
+    }
+    try {
+      await supabase.from('reservations').insert({
+        guest_name,
+        phone: newMember.phone.trim() || null,
+        reservation_time: new Date().toISOString(),
+        status: 'confirmed',
+        party_size: 1,
+        table_id: null,
+      })
+      setNewMember({ guest_name: '', phone: '' })
+      setShowAddMember(false)
+      setMemberError(null)
+    } catch (e) { console.error(e); setMemberError(e.message || 'Error saving') }
+  }
+
+  async function handleDeleteMember(guestName) {
+    const msg = i18n.language === 'vi' ? `Xoá thành viên "${guestName}"?` : `Delete member "${guestName}"?`
+    if (!window.confirm(msg)) return
+    try {
+      await supabase.from('reservations').delete().eq('guest_name', guestName)
+    } catch (e) { console.error(e) }
+  }
 
   if (reservations === null) {
     return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: '#888', fontSize: '14px' }}>{t('common.loading')}</span></div>
@@ -70,7 +100,45 @@ export default function GuestEngagement() {
           <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Guest Management</h1>
           <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Loyalty tracking · {topGuests.length} active members</p>
         </div>
+        <button
+          onClick={() => { setShowAddMember(true); setMemberError(null) }}
+          style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+        >
+          + {i18n.language === 'vi' ? 'Thêm thành viên' : 'Add Member'}
+        </button>
       </div>
+
+      {memberError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{memberError}</p>}
+
+      {showAddMember && (
+        <div style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <p style={{ fontWeight: 600, fontSize: '14px', margin: '0 0 12px' }}>
+            {i18n.language === 'vi' ? 'Thành viên mới' : 'New Member'}
+          </p>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <input
+              placeholder={i18n.language === 'vi' ? 'Tên khách hàng *' : 'Guest name *'}
+              value={newMember.guest_name}
+              onChange={(e) => setNewMember((m) => ({ ...m, guest_name: e.target.value }))}
+              style={{ flex: 1, minWidth: '180px', border: '1px solid #E5E5EA', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+            />
+            <input
+              placeholder={i18n.language === 'vi' ? 'Số điện thoại (tuỳ chọn)' : 'Phone (optional)'}
+              value={newMember.phone}
+              onChange={(e) => setNewMember((m) => ({ ...m, phone: e.target.value }))}
+              style={{ flex: 1, minWidth: '160px', border: '1px solid #E5E5EA', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={handleAddMember} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '7px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+              {i18n.language === 'vi' ? 'Thêm' : 'Add'}
+            </button>
+            <button onClick={() => { setShowAddMember(false); setMemberError(null) }} style={{ background: 'transparent', border: '1px solid #E5E5EA', borderRadius: '99px', padding: '7px 14px', fontSize: '13px', cursor: 'pointer' }}>
+              {i18n.language === 'vi' ? 'Huỷ' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Loyalty table card */}
       <div style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '18px 20px', marginBottom: '16px' }}>
@@ -88,7 +156,7 @@ export default function GuestEngagement() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #F2F2F7' }}>
-                {[t('guest.guestName'), t('guest.loyaltyTier'), t('guest.visitFrequency'), t('guest.loyaltyPoints'), t('guest.lastVisit')].map((h) => (
+                {[t('guest.guestName'), t('guest.loyaltyTier'), t('guest.visitFrequency'), t('guest.loyaltyPoints'), t('guest.lastVisit'), ''].map((h) => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#AAA', letterSpacing: '0.08em' }}>{h}</th>
                 ))}
               </tr>
@@ -116,6 +184,13 @@ export default function GuestEngagement() {
                     <td style={{ padding: '12px', color: '#555' }}>{getLoyaltyPoints(g.visits)} pts</td>
                     <td style={{ padding: '12px', color: '#AAA', fontSize: '12px' }}>
                       {g.lastVisit ? formatDateTime(g.lastVisit, i18n.language) : '—'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      <button
+                        onClick={() => handleDeleteMember(g.guest_name)}
+                        style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
+                        title={i18n.language === 'vi' ? 'Xoá thành viên' : 'Delete member'}
+                      >✕</button>
                     </td>
                   </tr>
                 )

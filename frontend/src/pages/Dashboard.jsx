@@ -118,7 +118,8 @@ export default function Dashboard() {
   const [ackError,     setAckError]     = useState(null)
 
   // ── Interactivity state ───────────────────────────────────────────────────
-  const [filters, setFilters] = useState({ channel: null, hour: null, item: null, payment: null })
+  // `hour` = 0-23 for Today clicks; `date` = "M/D" string for 7D/30D clicks
+  const [filters, setFilters] = useState({ channel: null, hour: null, date: null, item: null, payment: null })
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [hoveredCard, setHoveredCard]   = useState(null)
 
@@ -126,7 +127,7 @@ export default function Dashboard() {
     setFilters(prev => ({ ...prev, [key]: prev[key] === value ? null : value }))
   }
   function clearAllFilters() {
-    setFilters({ channel: null, hour: null, item: null, payment: null })
+    setFilters({ channel: null, hour: null, date: null, item: null, payment: null })
   }
   const hasFilters = Object.values(filters).some(v => v !== null)
 
@@ -218,7 +219,13 @@ export default function Dashboard() {
     return served.filter(o => {
       if (filters.channel === 'dine_in'  && !o.table_id) return false
       if (filters.channel === 'takeaway' &&  o.table_id) return false
-      if (filters.hour !== null && new Date(o.created_at).getHours() !== filters.hour) return false
+      if (filters.hour !== null) {
+        if (new Date(o.created_at).getHours() !== filters.hour) return false
+      }
+      if (filters.date) {
+        const d = new Date(o.created_at)
+        if (`${d.getMonth()+1}/${d.getDate()}` !== filters.date) return false
+      }
       if (filters.item) {
         const has = (o.items||[]).some(i => (i.name_en||i.name_vi||i.name||i.sku) === filters.item || (i.name_vi||i.name_en||i.name||i.sku) === filters.item)
         if (!has) return false
@@ -253,13 +260,17 @@ export default function Dashboard() {
       const key = range==='day' ? `${String(d.getHours()).padStart(2,'0')}:00` : `${d.getMonth()+1}/${d.getDate()}`
       if (key in map) map[key] += o.total_amount||0
     }
-    return Object.entries(map).map(([label,revenue]) => ({label,revenue}))
+    // attach dateKey for non-day so bars can be clicked to filter by day
+    return Object.entries(map).map(([label,revenue]) => ({
+      label, revenue,
+      ...(range !== 'day' ? { dateKey: label } : { hour: parseInt(label) }),
+    }))
   }, [rawOrders, filteredServed, range])
 
-  // ── Hourly bar ────────────────────────────────────────────────────────────
+  // ── Hourly bar (day = per-hour; week/month = reuse revenueTrend daily) ───
   const hourlyData = useMemo(() => {
     if (!rawOrders) return []
-    if (range !== 'day') return revenueTrend
+    if (range !== 'day') return revenueTrend  // already has dateKey
     const hours = {}
     for (let h=0;h<24;h++) hours[h]=0
     for (const o of filteredServed) {
@@ -352,6 +363,7 @@ export default function Dashboard() {
   const activeChips = [
     filters.channel && { key:'channel', label: filters.channel==='dine_in'?(lang==='vi'?'Tại bàn':'Dine-in'):(lang==='vi'?'Mang về':'Takeaway') },
     filters.hour!==null && { key:'hour', label: `${lang==='vi'?'Giờ':'Hour'} ${filters.hour}h` },
+    filters.date && { key:'date', label: `${lang==='vi'?'Ngày':'Day'} ${filters.date}` },
     filters.item && { key:'item', label: filters.item },
     filters.payment && { key:'payment', label: filters.payment },
   ].filter(Boolean)
@@ -397,7 +409,7 @@ export default function Dashboard() {
             {lang==='vi'?'Lọc theo:':'Filtered by:'}
           </span>
           {activeChips.map(c=>(
-            <FilterChip key={c.key} label={c.label} onRemove={()=>setFilters(prev=>({...prev,[c.key]:c.key==='hour'?null:null}))} />
+            <FilterChip key={c.key} label={c.label} onRemove={()=>setFilters(prev=>({...prev,[c.key]:null}))} />
           ))}
           <span style={{fontSize:'12px',color:'#AAA'}}>— {filteredServed.length} {lang==='vi'?'đơn':'orders'} ({served.length} {lang==='vi'?'tổng':'total'})</span>
         </div>
@@ -468,23 +480,33 @@ export default function Dashboard() {
       {/* ── Row 2: Revenue Trend | Sales by Channel ── */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
 
-        {/* Revenue Trend — click a point to filter by hour */}
+        {/* Revenue Trend — click to filter by hour (Today) or day (7D/30D) */}
         <div style={card()}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>{lang==='vi'?'Xu hướng doanh thu':'Revenue Trend'}</span>
-            {filters.hour!==null&&<button onClick={()=>setFilters(p=>({...p,hour:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>}
+            {(filters.hour!==null||filters.date)&&(
+              <button onClick={()=>setFilters(p=>({...p,hour:null,date:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={revenueTrend} margin={{top:4,right:4,left:0,bottom:0}}
-              onClick={range==='day'?({activeLabel})=>{ if(activeLabel){ const h=parseInt(activeLabel);toggleFilter('hour',h) } }:undefined}>
+              onClick={({activeLabel,activePayload})=>{
+                if (!activeLabel||!activePayload?.[0]) return
+                if (range==='day') { const h=parseInt(activeLabel); if(!isNaN(h)) toggleFilter('hour',h) }
+                else toggleFilter('date', activePayload[0].payload.dateKey)
+              }}>
               <XAxis dataKey="label" tick={{fontSize:10,fill:'#AAA'}} axisLine={false} tickLine={false} interval="preserveStartEnd"/>
               <YAxis hide/>
               <Tooltip content={<TooltipVnd/>}/>
               {filters.hour!==null&&range==='day'&&<ReferenceLine x={`${String(filters.hour).padStart(2,'0')}:00`} stroke="#E8002A" strokeDasharray="4 2"/>}
-              <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2} dot={{r:3,fill:'#E8002A',cursor:'pointer'}} activeDot={{r:6,cursor:'pointer'}}/>
+              {filters.date&&range!=='day'&&<ReferenceLine x={filters.date} stroke="#E8002A" strokeDasharray="4 2"/>}
+              <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2}
+                dot={{r:3,fill:'#E8002A',cursor:'pointer'}} activeDot={{r:6,cursor:'pointer'}}/>
             </LineChart>
           </ResponsiveContainer>
-          {range==='day'&&<p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>{lang==='vi'?'Nhấp vào điểm để lọc theo giờ':'Click a point to filter by hour'}</p>}
+          <p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>
+            {range==='day'?(lang==='vi'?'Nhấp điểm để lọc theo giờ':'Click a point to filter by hour'):(lang==='vi'?'Nhấp điểm để lọc theo ngày':'Click a point to filter by day')}
+          </p>
         </div>
 
         {/* Sales by Channel — click bar to cross-filter */}
@@ -514,29 +536,39 @@ export default function Dashboard() {
       {/* ── Row 3: Hourly Sales | Top Selling Items ── */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
 
-        {/* Hourly/Daily column — click to filter by hour */}
+        {/* Hourly/Daily column — click to filter by hour (Today) or day (7D/30D) */}
         <div style={card()}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>
               {range==='day'?(lang==='vi'?'Doanh thu theo giờ':'Hourly Sales'):(lang==='vi'?'Doanh thu theo ngày':'Daily Revenue')}
             </span>
-            {filters.hour!==null&&<button onClick={()=>setFilters(p=>({...p,hour:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>}
+            {(filters.hour!==null||filters.date)&&(
+              <button onClick={()=>setFilters(p=>({...p,hour:null,date:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={hourlyData} margin={{top:4,right:4,left:0,bottom:0}}
-              onClick={range==='day'?({activePayload})=>{ if(activePayload?.[0]) toggleFilter('hour',activePayload[0].payload.hour) }:undefined}>
+              onClick={({activePayload})=>{
+                if (!activePayload?.[0]) return
+                if (range==='day') toggleFilter('hour', activePayload[0].payload.hour)
+                else toggleFilter('date', activePayload[0].payload.dateKey)
+              }}>
               <XAxis dataKey="label" tick={{fontSize:9,fill:'#AAA'}} axisLine={false} tickLine={false} interval={range==='day'?3:'preserveStartEnd'}/>
               <YAxis hide/>
               <Tooltip content={<TooltipVnd/>}/>
-              <Bar dataKey="revenue" radius={[3,3,0,0]} cursor={range==='day'?'pointer':'default'}>
-                {hourlyData.map((d,i)=>(
-                  <Cell key={i} fill="#E8002A"
-                    opacity={filters.hour!==null&&filters.hour!==d.hour?0.3:1}/>
-                ))}
+              <Bar dataKey="revenue" radius={[3,3,0,0]} cursor="pointer">
+                {hourlyData.map((d,i)=>{
+                  const active = range==='day'
+                    ? (filters.hour===null || filters.hour===d.hour)
+                    : (filters.date===null || filters.date===d.dateKey)
+                  return <Cell key={i} fill="#E8002A" opacity={active?1:0.3}/>
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-          {range==='day'&&<p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>{lang==='vi'?'Nhấp cột để lọc theo giờ':'Click a bar to filter by hour'}</p>}
+          <p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>
+            {range==='day'?(lang==='vi'?'Nhấp cột để lọc theo giờ':'Click a bar to filter by hour'):(lang==='vi'?'Nhấp cột để lọc theo ngày':'Click a bar to filter by day')}
+          </p>
         </div>
 
         {/* Top Selling Items — click to filter */}

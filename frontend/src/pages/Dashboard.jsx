@@ -87,21 +87,20 @@ export default function Dashboard() {
     })
   }, [rawOrders])
 
-  const rangeRevenue = useMemo(() => {
-    if (!rawOrders) return null
-    let cutoff
+  const rangeRevenue = useMemo(() => rangeServed.reduce((s, o) => s + (o.total_amount || 0), 0), [rangeServed])
+
+  // All range-driven KPI values share the same cutoff
+  const rangeCutoff = useMemo(() => {
     if (revenueRange === 'day') {
-      // Today only — calendar day, not rolling 24h
-      cutoff = new Date()
-      cutoff.setHours(0, 0, 0, 0)
-    } else {
-      const days = RANGE_DAYS[revenueRange] ?? 7
-      cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      const d = new Date(); d.setHours(0, 0, 0, 0); return d
     }
-    return rawOrders
-      .filter((o) => o.status === 'served' && o.created_at && new Date(o.created_at) >= cutoff)
-      .reduce((sum, o) => sum + (o.total_amount || 0), 0)
-  }, [rawOrders, revenueRange])
+    return new Date(Date.now() - RANGE_DAYS[revenueRange] * 24 * 60 * 60 * 1000)
+  }, [revenueRange])
+
+  const rangeServed = useMemo(() => {
+    if (!rawOrders) return []
+    return rawOrders.filter((o) => o.status === 'served' && o.created_at && new Date(o.created_at) >= rangeCutoff)
+  }, [rawOrders, rangeCutoff])
 
   const topGuests = useMemo(() => {
     const map = {}
@@ -168,35 +167,42 @@ export default function Dashboard() {
       </div>
 
       {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px', marginBottom: '18px' }}>
-        {[
-          {
-            label: 'Revenue', value: formatVnd(rangeRevenue ?? 0), delta: '+12%', deltaUp: true, sub: 'vs last shift', icon: '₫',
-            extra: (
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
-                {['day', 'week', 'month'].map((r) => (
-                  <button key={r} onClick={() => setRevenueRange(r)} style={{ borderRadius: '4px', padding: '2px 7px', fontSize: '10px', border: 'none', cursor: 'pointer', fontWeight: 600, background: revenueRange === r ? '#E8002A' : '#F2F2F7', color: revenueRange === r ? 'white' : '#888' }}>
-                    {r === 'day' ? '1D' : r === 'week' ? '7D' : '30D'}
-                  </button>
-                ))}
-              </div>
-            ),
-          },
-          { label: 'Covers', value: covers, delta: `${covers} served`, deltaUp: covers > 0, sub: 'today', icon: '👥' },
-          { label: 'Avg Ticket', value: formatVnd(avgTicket), delta: '+5%', deltaUp: true, sub: 'vs typical', icon: '🧾' },
-          { label: 'Occupancy', value: `${occupied}/${tables.length}`, delta: `${Math.round((occupied / Math.max(tables.length, 1)) * 100)}%`, deltaUp: occupied > tables.length / 2, sub: 'tables active', icon: '⊞' },
-        ].map((kpi) => (
-          <div key={kpi.label} style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-            {kpi.extra && <div style={{ alignSelf: 'stretch' }}>{kpi.extra}</div>}
-            <span style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #FFB3C1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: '#E8002A', marginBottom: '10px' }}>{kpi.icon}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>{kpi.label}</span>
-            <div style={{ fontSize: '28px', fontWeight: 800, color: '#1A1A1A', lineHeight: 1.1, marginBottom: '8px' }}>{kpi.value}</div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: kpi.deltaUp ? '#16A34A' : '#DC2626' }}>{kpi.deltaUp ? '▲' : '▼'} {kpi.delta}</span>
-              <span style={{ fontSize: '11px', color: '#AAA' }}>{kpi.sub}</span>
-            </div>
+      <div style={{ marginBottom: '18px' }}>
+        {/* Section header with range toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Performance Metrics</span>
+          <div style={{ display: 'flex', gap: '4px', background: '#F2F2F7', borderRadius: '8px', padding: '3px' }}>
+            {[['day','Today'], ['week','7D'], ['month','30D']].map(([r, label]) => (
+              <button key={r} onClick={() => setRevenueRange(r)} style={{ borderRadius: '6px', padding: '4px 12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: 600, background: revenueRange === r ? 'white' : 'transparent', color: revenueRange === r ? '#E8002A' : '#888', boxShadow: revenueRange === r ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+                {label}
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px' }}>
+          {(() => {
+            const rangeCovers = rangeServed.length
+            const rangeAvg = rangeCovers > 0 ? rangeRevenue / rangeCovers : 0
+            const rangeSub = revenueRange === 'day' ? 'today' : revenueRange === 'week' ? 'last 7 days' : 'last 30 days'
+            return [
+              { label: 'Revenue',    value: formatVnd(rangeRevenue),  icon: '₫',  deltaUp: rangeRevenue > 0,  delta: formatVnd(rangeRevenue),  sub: rangeSub },
+              { label: 'Covers',     value: rangeCovers,               icon: '👥', deltaUp: rangeCovers > 0,   delta: `${rangeCovers} orders`,  sub: rangeSub },
+              { label: 'Avg Ticket', value: formatVnd(rangeAvg),       icon: '🧾', deltaUp: rangeAvg > 0,      delta: formatVnd(rangeAvg),      sub: 'per order' },
+              { label: 'Occupancy',  value: `${occupied}/${tables.length}`, icon: '⊞', deltaUp: occupied > tables.length / 2, delta: `${Math.round((occupied / Math.max(tables.length,1)) * 100)}%`, sub: 'tables now' },
+            ].map((kpi) => (
+              <div key={kpi.label} style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <span style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #FFB3C1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: '#E8002A', marginBottom: '10px' }}>{kpi.icon}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>{kpi.label}</span>
+                <div style={{ fontSize: '28px', fontWeight: 800, color: '#1A1A1A', lineHeight: 1.1, marginBottom: '8px' }}>{kpi.value}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: kpi.deltaUp ? '#16A34A' : '#888' }}>{kpi.deltaUp ? '▲' : '—'}</span>
+                  <span style={{ fontSize: '11px', color: '#AAA' }}>{kpi.sub}</span>
+                </div>
+              </div>
+            ))
+          })()}
+        </div>
       </div>
 
       {/* AI consultant card */}

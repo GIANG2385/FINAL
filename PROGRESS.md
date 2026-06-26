@@ -1,6 +1,6 @@
 # Pang Pang SmartOps AI — Progress Tracker
 
-**Status as of 2026-06-25:** All 11 build steps complete. App deployed to Vercel (`https://final-wine-five.vercel.app`). Backend API calls eliminated — all data flows directly through Firestore client SDK. Pang Pang brand redesign and full UI restructure complete. June 2026 demo data scripts written; **data load blocked on Firestore free-tier quota** (resets 14:00 Vietnam time / midnight Pacific Time daily).
+**Status as of 2026-06-26:** All 11 build steps complete. App deployed to Vercel (`https://final-wine-five.vercel.app`) + backend on Render (`https://pang-pang.onrender.com`). Full Supabase migration complete. Dashboard fully redesigned with sidebar layout, floor plan, guest tracking, and AI card. UI polish pass complete across all pages. Revenue seed script ready for demo busy-scenario.
 
 ---
 
@@ -175,6 +175,46 @@ CSS custom properties in `index.css`:
 **Firestore rules**
 
 - Added `menu_items` collection rule (was missing — caused "loading forever" + "error saving" on Recipes tab).
+
+---
+
+### 2026-06-26 (session 4 — Dashboard redesign + UI polish + AI fixes)
+
+**Dashboard full redesign** (`9a8d5c4` → `9a45391`)
+
+- Layout changed from card-grid to **sidebar + main-panel**: left sidebar shows Floor Plan (color-coded table tiles with `seated_at` elapsed time) + Guest Tracking (today's covers, pending reservations, recent loyalty activity); main panel retains KPI cards + AI summary card + alerts feed.
+- Floor plan tiles stretch to match alert panel height (flex layout).
+- KPI cards: text center-aligned, values display to 2 decimal places in BOH profit panel.
+- AI summary card recolored (chili red → softer accent matching design system).
+- Shift Report tab removed from BOH (was redundant with Labor tab).
+- "Kitchen Ops" nav item removed; renamed remaining nav items for clarity.
+- Ready queue (kitchen kanban) now sorts oldest-first so urgent tickets surface at top.
+
+**Consultant fixes** (`0c9b99e`, `2f35256`)
+
+- Fixed crash when user asked a wait-time query — backend now enriches queue data with `seated_at` before passing to Cohere, preventing `undefined` dereference.
+- Bottom bar background fixed to `#F2F2F7` to match AppShell; no longer renders as white stripe.
+
+**UI polish passes** (`5091af5`, `8e193a6`)
+
+- Navbar: avatar sizing, active link underline alignment.
+- Kanban advance buttons: arrow suffix (`→`) for visual clarity.
+- Table grid: color-coded status border more prominent.
+- Tier pills (Gold/Silver/Bronze): use brand token variables consistently.
+- BOH buttons: spacing and sizing normalized.
+
+**Inventory deduction fix** (`5b5a43f`)
+
+- `handleSendToKitchen` now reads **fresh stock from Supabase** immediately before deducting (previously used stale React state), eliminating race condition where concurrent orders could over-deduct.
+
+**Unified sidebar layout** (`9944514`)
+
+- All pages (FOH, BOH, Guest, Insights, Consultant) share the same AppShell sidebar-content structure. Consultant height fixed from `calc(100vh-52px)` to `flex:1` to align with new layout.
+
+**Realistic revenue seed** (`9a45391`)
+
+- `backend/src/scripts/seedRealisticRevenue.js` (or equivalent): populates today's orders with a busy-scenario revenue profile for demo purposes.
+- Menu item prices updated to realistic VND values matching the busy scenario.
 
 ---
 

@@ -192,14 +192,16 @@ Respond with the executive brief only — no preamble.`
   // ── Revenue Trend (line chart) ──────────────────────────────────────────
   const revenueTrend = useMemo(() => {
     if (!rawOrders) return []
-    const days = range === 'day' ? 1 : range === 'week' ? 7 : 30
     const map = {}
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0,0,0,0)
-      const key = range === 'day'
-        ? `${String(d.getHours()).padStart(2,'0')}:00`
-        : `${d.getMonth()+1}/${d.getDate()}`
-      map[key] = 0
+    if (range === 'day') {
+      // 24 hourly buckets for today
+      for (let h = 0; h < 24; h++) map[`${String(h).padStart(2,'0')}:00`] = 0
+    } else {
+      const days = range === 'week' ? 7 : 30
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0,0,0,0)
+        map[`${d.getMonth()+1}/${d.getDate()}`] = 0
+      }
     }
     for (const o of rawOrders) {
       if (o.status !== 'served' || !o.created_at) continue
@@ -263,13 +265,25 @@ Respond with the executive brief only — no preamble.`
     ]
   }, [kpis, lang])
 
-  // ── Sales by Channel (static) ─────────────────────────────────────────────
-  const channelData = [
-    { name: lang === 'vi' ? 'Tại bàn' : 'Dine-in',    value: 48 },
-    { name: lang === 'vi' ? 'Mang về' : 'Takeaway',   value: 15 },
-    { name: 'GrabFood',                                 value: 22 },
-    { name: 'ShopeeFood',                               value: 9  },
-  ]
+  // ── Sales by Channel (derived from served orders in range) ───────────────
+  const channelData = useMemo(() => {
+    const counts = { 'Dine-in': 0, 'Takeaway': 0, 'GrabFood': 0, 'ShopeeFood': 0 }
+    for (const o of served) {
+      const pm = (o.payment_method || '').toLowerCase()
+      if (pm.includes('grab')) counts['GrabFood']++
+      else if (pm.includes('shopee')) counts['ShopeeFood']++
+      else if (o.table_id) counts['Dine-in']++
+      else counts['Takeaway']++
+    }
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([name, value]) => ({
+        name: name === 'Dine-in' ? (lang === 'vi' ? 'Tại bàn' : 'Dine-in')
+            : name === 'Takeaway' ? (lang === 'vi' ? 'Mang về' : 'Takeaway')
+            : name,
+        value,
+      }))
+  }, [served, lang])
 
   // ── Alerts ────────────────────────────────────────────────────────────────
   const alerts = useMemo(() => {

@@ -4,6 +4,14 @@ import { useTranslation } from 'react-i18next'
 import supabase from '../services/supabase'
 import { MENU_ITEMS } from '../data/menu'
 
+function exportCsv(filename, headers, rows) {
+  const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+}
+
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
     style: 'currency', currency: 'VND',
@@ -930,6 +938,19 @@ export default function FrontOfHouse() {
       {/* ── Tab B: Orders (Kitchen Kanban) ── */}
       {activeTab === 'orders' && (
         <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+            <button
+              onClick={() => exportCsv('orders', ['Item', 'Table', 'Qty', 'Status', 'Queued At', 'Completed At'],
+                (kitchenQueue || []).map((q) => [
+                  i18n.language === 'vi' ? (q.item_name_vi || q.item_name || q.item_sku) : (q.item_name_en || q.item_name || q.item_sku),
+                  q.table_id || '', q.qty || 1, q.status,
+                  q.queued_at ? new Date(q.queued_at).toISOString() : '',
+                  q.completed_at ? new Date(q.completed_at).toISOString() : '',
+                ])
+              )}
+              style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+            >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+          </div>
           {kitchenQueue === null ? (
             <p style={{ color: 'var(--pp-text-muted)', fontSize: '14px' }}>{t('common.loading')}</p>
           ) : (
@@ -1008,7 +1029,13 @@ export default function FrontOfHouse() {
             {t('guest.peakForecast')}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '12px' }}>
+            <button
+              onClick={() => exportCsv('reservations', ['Guest', 'Party Size', 'Time', 'Table', 'Status'],
+                (reservations || []).map((r) => [r.guest_name, r.party_size || '', r.reservation_time ? new Date(r.reservation_time).toISOString() : '', r.table_id || '', r.status])
+              )}
+              style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+            >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
             <button onClick={() => setFormOpen((f) => !f)} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
               {t('guest.addReservation')}
             </button>

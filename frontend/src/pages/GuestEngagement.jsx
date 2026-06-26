@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import supabase from '../services/supabase'
 
+function exportCsv(filename, headers, rows) {
+  const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+}
+
 function toDate(value) {
   if (!value) return null
   return value.toDate ? value.toDate() : new Date(value)
@@ -100,12 +108,20 @@ export default function GuestEngagement() {
           <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Guest Management</h1>
           <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Loyalty tracking · {topGuests.length} active members</p>
         </div>
-        <button
-          onClick={() => { setShowAddMember(true); setMemberError(null) }}
-          style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-        >
-          + {i18n.language === 'vi' ? 'Thêm thành viên' : 'Add Member'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => exportCsv('guests', ['Guest Name', 'Tier', 'Visits', 'Points', 'Last Visit'],
+              topGuests.map((g) => [g.guest_name, getLoyaltyTier(g.visits), g.visits, getLoyaltyPoints(g.visits), g.lastVisit ? g.lastVisit.toISOString() : ''])
+            )}
+            style={{ background: 'white', color: '#1A1A1A', border: '1px solid #E5E5EA', borderRadius: '99px', padding: '9px 20px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+          >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+          <button
+            onClick={() => { setShowAddMember(true); setMemberError(null) }}
+            style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+          >
+            + {i18n.language === 'vi' ? 'Thêm thành viên' : 'Add Member'}
+          </button>
+        </div>
       </div>
 
       {memberError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{memberError}</p>}

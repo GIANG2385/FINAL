@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next'
 import supabase from '../services/supabase'
 import { MENU_ITEMS } from '../data/menu'
 
+function exportCsv(filename, headers, rows) {
+  const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+}
+
 function formatVnd(amount, lang) {
   return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
     style: 'currency', currency: 'VND',
@@ -597,12 +605,20 @@ export default function BackOfHouse() {
             <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>
               {i18n.language === 'vi' ? 'Công thức món ăn' : 'Dish Recipes'}
             </h2>
-            <button
-              onClick={() => { setShowAddDish(true); setRecipeError(null) }}
-              style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-            >
-              + {i18n.language === 'vi' ? 'Thêm món mới' : 'Add Dish'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => exportCsv('recipes', ['SKU', 'Name EN', 'Name VI', 'Price (VND)', 'Ingredients'],
+                  (menuItems || []).map((d) => [d.sku, d.name_en, d.name_vi, d.unit_price, (d.recipes || []).map((r) => `${r.qty}${r.unit || ''} ${r.ingredient_name_en || r.ingredient_sku}`).join('; ')])
+                )}
+                style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+              <button
+                onClick={() => { setShowAddDish(true); setRecipeError(null) }}
+                style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                + {i18n.language === 'vi' ? 'Thêm món mới' : 'Add Dish'}
+              </button>
+            </div>
           </div>
 
           {recipeError && (
@@ -854,12 +870,24 @@ export default function BackOfHouse() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('boh.labor')}</h2>
-            <button
-              onClick={() => { setShowAddStaff(true); setStaffError(null) }}
-              style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-            >
-              + {i18n.language === 'vi' ? 'Thêm nhân viên' : 'Add Staff'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => exportCsv('labor', ['Name', 'Role', 'Shift Start', 'Shift End', 'Status'],
+                  (staffShifts || []).map((s) => {
+                    const start = toDate(s.shift_start); const end = toDate(s.shift_end)
+                    const isOn = start && end && start <= now && now <= end
+                    return [s.name, s.role, start ? start.toISOString() : '', end ? end.toISOString() : '', isOn ? 'On shift' : 'Off']
+                  })
+                )}
+                style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+              <button
+                onClick={() => { setShowAddStaff(true); setStaffError(null) }}
+                style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                + {i18n.language === 'vi' ? 'Thêm nhân viên' : 'Add Staff'}
+              </button>
+            </div>
           </div>
 
           {staffError && <p style={{ color: 'var(--pp-danger-text)', fontSize: '13px', marginBottom: '10px' }}>{staffError}</p>}
@@ -1031,7 +1059,15 @@ export default function BackOfHouse() {
 
           {/* Revenue by Channel */}
           <div>
-            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.channels')}</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('boh.channels')}</h2>
+              <button
+                onClick={() => exportCsv('revenue_channels', ['Channel', 'Orders', 'Revenue (VND)'],
+                  STATIC_CHANNELS.map((c) => [c.name_en, c.orders, c.revenue])
+                )}
+                style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+            </div>
             <div style={{ background: 'var(--pp-warning-bg)', border: '1px solid var(--pp-warning-border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '14px', color: 'var(--pp-warning-text)' }}>
               {t('boh.channelAiInsight')}
             </div>
@@ -1059,7 +1095,15 @@ export default function BackOfHouse() {
 
           {/* Supply Monitoring */}
           <div>
-            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>{t('boh.supply')}</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{t('boh.supply')}</h2>
+              <button
+                onClick={() => exportCsv('suppliers', ['Supplier', 'Items', 'Last Delivery', 'Reliability (%)'],
+                  STATIC_SUPPLIERS.map((s) => [s.name, s.items, s.lastDelivery, s.reliability])
+                )}
+                style={{ background: 'white', color: 'var(--pp-text)', border: '1px solid var(--pp-border)', borderRadius: '99px', padding: '8px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >↓ {i18n.language === 'vi' ? 'Xuất CSV' : 'Export CSV'}</button>
+            </div>
             <div style={{ background: 'var(--pp-info-bg)', border: '1px solid var(--pp-info-border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '14px', color: 'var(--pp-info-text)' }}>
               {t('boh.supplyAiForecast')}
             </div>

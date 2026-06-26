@@ -226,19 +226,22 @@ for (let dayOff = 30; dayOff >= 1; dayOff--) {
   const lunchCount  = Math.round(targetOrders * 0.45)
   const dinnerCount = targetOrders - lunchCount
 
+  // ~25% of orders are takeaway (table_id = null)
   for (let i = 0; i < lunchCount; i++) {
-    const tableId = TABLES[orderId % TABLES.length]
+    const isTakeaway = rand() < 0.25
+    const tableId = isTakeaway ? null : TABLES[orderId % TABLES.length]
     allOrders.push(buildOrder(`ORD-H-${orderId++}`, tableId, dayOff, pick(LUNCH_HOURS)))
   }
   for (let i = 0; i < dinnerCount; i++) {
-    const tableId = TABLES[orderId % TABLES.length]
+    const isTakeaway = rand() < 0.25
+    const tableId = isTakeaway ? null : TABLES[orderId % TABLES.length]
     allOrders.push(buildOrder(`ORD-H-${orderId++}`, tableId, dayOff, pick(DINNER_HOURS)))
   }
 }
 
-// Today: lunch rush served (11 orders), dinner in progress
+// Today: lunch rush served (11 dine-in + 4 takeaway), dinner in progress
 const todayServed = [
-  // Lunch wave — all served
+  // Lunch wave — dine-in
   ...[0,1,2,3,4,5,6,7,8,9,10].map((i) => {
     const tableId = TABLES[i % TABLES.length]
     const base = new Date(NOW)
@@ -252,6 +255,23 @@ const todayServed = [
     return {
       id: `LIVE-SERVED-${i}`,
       table_id: tableId, channel: 'dine_in', items,
+      status: 'served', total_amount: items.reduce((s, i) => s + i.unit_price, 0),
+      created_at, served_at, payment_method: pick(PAYMENTS),
+    }
+  }),
+  // Takeaway orders today
+  ...[0,1,2,3].map((i) => {
+    const base = new Date(NOW)
+    base.setHours(11 + i, randInt(10, 50), 0, 0)
+    const created_at = base.toISOString()
+    const served_at  = new Date(base.getTime() + randInt(10, 20) * 60000).toISOString()
+    const items = Array.from({ length: randInt(2, 4) }, () => {
+      const m = weightedPick(MENU)
+      return { sku: m.sku, name_en: m.name_en, name_vi: m.name_vi, unit_price: m.unit_price, qty: 1 }
+    })
+    return {
+      id: `LIVE-TAKEAWAY-${i}`,
+      table_id: null, channel: 'takeaway', items,
       status: 'served', total_amount: items.reduce((s, i) => s + i.unit_price, 0),
       created_at, served_at, payment_method: pick(PAYMENTS),
     }

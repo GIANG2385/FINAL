@@ -77,6 +77,8 @@ export default function BackOfHouse() {
   const [showAddStaff, setShowAddStaff] = useState(false)
   const [newStaff, setNewStaff] = useState({ name: '', role: '', shift_start: '', shift_end: '' })
   const [staffError, setStaffError] = useState(null)
+  const [editingStaffId, setEditingStaffId] = useState(null)
+  const [editStaffValues, setEditStaffValues] = useState({ name: '', role: '', shift_start: '', shift_end: '' })
   const seededRef = useRef(false)
   const costSeededRef = useRef(false)
 
@@ -362,6 +364,24 @@ export default function BackOfHouse() {
     const msg = i18n.language === 'vi' ? 'Xoá ca làm này?' : 'Delete this shift?'
     if (!window.confirm(msg)) return
     try { await supabase.from('staff_shifts').delete().eq('staff_id', staffId) } catch (e) { console.error(e) }
+  }
+
+  async function handleSaveStaffEdit(staffId) {
+    const name = editStaffValues.name.trim()
+    const role = editStaffValues.role.trim()
+    if (!name || !role || !editStaffValues.shift_start || !editStaffValues.shift_end) {
+      setStaffError(i18n.language === 'vi' ? 'Vui lòng điền đầy đủ thông tin' : 'All fields are required')
+      return
+    }
+    try {
+      await supabase.from('staff_shifts').update({
+        name, role,
+        shift_start: new Date(editStaffValues.shift_start).toISOString(),
+        shift_end: new Date(editStaffValues.shift_end).toISOString(),
+      }).eq('staff_id', staffId)
+      setEditingStaffId(null)
+      setStaffError(null)
+    } catch (e) { console.error(e); setStaffError(e.message || 'Error saving') }
   }
 
   const now = new Date()
@@ -905,6 +925,38 @@ export default function BackOfHouse() {
                     {staffShifts.map((s) => {
                       const isOn = onShiftNow.some((o) => o.staff_id === s.staff_id)
                       const start = toDate(s.shift_start); const end = toDate(s.shift_end)
+                      const isEditingRow = editingStaffId === s.staff_id
+                      if (isEditingRow) {
+                        return (
+                          <tr key={s.staff_id} style={{ borderBottom: '1px solid var(--pp-border)', background: 'var(--pp-info-bg)' }}>
+                            <td style={{ padding: '8px 12px' }}>
+                              <input value={editStaffValues.name} onChange={(e) => setEditStaffValues((v) => ({ ...v, name: e.target.value }))}
+                                placeholder={i18n.language === 'vi' ? 'Tên' : 'Name'} style={{ width: '100%', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <input value={editStaffValues.role} onChange={(e) => setEditStaffValues((v) => ({ ...v, role: e.target.value }))}
+                                placeholder={i18n.language === 'vi' ? 'Vai trò' : 'Role'} style={{ width: '100%', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                            </td>
+                            <td style={{ padding: '8px 12px' }} colSpan={2}>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <input type="datetime-local" value={editStaffValues.shift_start} onChange={(e) => setEditStaffValues((v) => ({ ...v, shift_start: e.target.value }))}
+                                  style={{ border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                                <span style={{ color: 'var(--pp-text-muted)', fontSize: '13px' }}>–</span>
+                                <input type="datetime-local" value={editStaffValues.shift_end} onChange={(e) => setEditStaffValues((v) => ({ ...v, shift_end: e.target.value }))}
+                                  style={{ border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                              </div>
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => handleSaveStaffEdit(s.staff_id)} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                                  {i18n.language === 'vi' ? 'Lưu' : 'Save'}
+                                </button>
+                                <button onClick={() => { setEditingStaffId(null); setStaffError(null) }} style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer' }}>✕</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
                       return (
                         <tr key={s.staff_id} style={{ borderBottom: '1px solid var(--pp-border)' }}>
                           <td style={{ padding: '12px', fontWeight: 500 }}>{s.name}</td>
@@ -920,11 +972,22 @@ export default function BackOfHouse() {
                             }}>{isOn ? t('boh.shiftStatus.on') : t('boh.shiftStatus.off')}</span>
                           </td>
                           <td style={{ padding: '12px' }}>
-                            <button
-                              onClick={() => handleDeleteStaff(s.staff_id)}
-                              style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
-                              title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
-                            >✕</button>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                onClick={() => {
+                                  const fmt = (d) => d ? d.toISOString().slice(0, 16) : ''
+                                  setEditingStaffId(s.staff_id)
+                                  setEditStaffValues({ name: s.name || '', role: s.role || '', shift_start: fmt(start), shift_end: fmt(end) })
+                                  setStaffError(null)
+                                }}
+                                style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '3px 8px', fontSize: '12px', cursor: 'pointer', color: 'var(--pp-text-muted)' }}
+                              >{i18n.language === 'vi' ? 'Sửa' : 'Edit'}</button>
+                              <button
+                                onClick={() => handleDeleteStaff(s.staff_id)}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
+                                title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
+                              >✕</button>
+                            </div>
                           </td>
                         </tr>
                       )

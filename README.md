@@ -12,14 +12,10 @@
 
 - Login via Firebase Email/Password (`/login`)
 - After login, role fetched from `/api/me` (backend reads `users` table with service key)
-- Two roles: `staff` and `manager`/`admin` (manager = admin, same permissions)
+- Two roles: `staff` and `admin` 
 - **Staff** can access: FOH, BOH, Guest Management, Insights, Settings
 - **Manager/Admin** can also access: Dashboard, AI Consultant
 - Unauthorized route → redirect to `/foh`
-
-**Test accounts:**
-- `hgiang2308@gmail.com` — admin
-- `staff.test@pangpang.local` — staff
 
 ---
 

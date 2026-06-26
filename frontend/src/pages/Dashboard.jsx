@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -8,6 +8,17 @@ import {
 import supabase from '../services/supabase'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { auth } from '../services/firebase'
+
+function TypingDots() {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:'4px', padding:'8px 12px', background:'white', border:'1px solid #E5E5EA', borderRadius:'4px 14px 14px 14px', width:'fit-content' }}>
+      {[0,0.2,0.4].map((delay,i) => (
+        <span key={i} style={{ width:'6px', height:'6px', borderRadius:'50%', background:'#E8002A', display:'inline-block', animation:`scaleBounce 1.2s ${delay}s infinite` }} />
+      ))}
+    </div>
+  )
+}
 
 const FOOD_COST_PCT = 0.32
 const HOURLY_WAGE   = 25000
@@ -50,6 +61,14 @@ export default function Dashboard() {
   const [range,        setRange]        = useState('day')
   const [ackError,     setAckError]     = useState(null)
 
+  // AI Consultant mini chat
+  const [chatMessages, setChatMessages] = useState(null)
+  const [chatInput,    setChatInput]    = useState('')
+  const [chatSending,  setChatSending]  = useState(false)
+  const [chatError,    setChatError]    = useState(null)
+  const chatBottomRef = useRef(null)
+  const chatUidRef    = useRef(null)
+
   useEffect(() => {
     const monthAgo = new Date(Date.now() - 30 * 86400000)
     supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString())
@@ -74,6 +93,45 @@ export default function Dashboard() {
       .subscribe()
     return () => { supabase.removeChannel(ch1); supabase.removeChannel(ch2); supabase.removeChannel(ch3) }
   }, [])
+
+  // Load consultant messages when user is ready
+  useEffect(() => {
+    const uid = auth.currentUser?.uid
+    if (!uid) return
+    chatUidRef.current = uid
+    supabase.from('consultant_messages').select('*').eq('user_id', uid).order('created_at', { ascending: true })
+      .then(({ data }) => setChatMessages(data || []))
+    const ch = supabase.channel(`dash-consultant-${uid}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'consultant_messages' }, (payload) => {
+        if (payload.new?.user_id !== uid) return
+        setChatMessages(prev => {
+          if (!prev) return [payload.new]
+          if (prev.find(m => m.id === payload.new.id)) return prev
+          const optIdx = prev.findIndex(m => m.id?.startsWith('opt-') && m.role === payload.new.role && m.content === payload.new.content)
+          if (optIdx !== -1) { const next = [...prev]; next[optIdx] = payload.new; return next }
+          return [...prev, payload.new]
+        })
+      })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [])
+
+  useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chatMessages, chatSending])
+
+  async function sendChat(text) {
+    if (!text.trim() || chatSending) return
+    setChatSending(true); setChatError(null); setChatInput('')
+    const optId = `opt-${Date.now()}`
+    setChatMessages(prev => [...(prev||[]), { id: optId, role: 'user', content: text, created_at: new Date().toISOString() }])
+    try {
+      await api.post('/api/consultant/messages', { message: text })
+      setTimeout(() => {
+        if (chatUidRef.current)
+          supabase.from('consultant_messages').select('*').eq('user_id', chatUidRef.current).order('created_at', { ascending: true }).then(({ data }) => setChatMessages(data || []))
+      }, 300)
+    } catch { setChatError('Error sending message'); setChatMessages(prev => prev?.filter(m => m.id !== optId) ?? []) }
+    finally { setChatSending(false) }
+  }
 
   const cutoff = useMemo(() => {
     if (range === 'day') { const d = new Date(); d.setHours(0,0,0,0); return d }
@@ -271,6 +329,57 @@ export default function Dashboard() {
             <span style={{ fontSize:'11px', fontWeight:600, color:'#166534' }}>{lang==='vi'?'Hệ thống hoạt động':'System Live'}</span>
           </div>
         </div>
+      </div>
+
+      {/* ── AI Consultant Mini Chat ── */}
+      <div style={{ background:'white', border:'1px solid #E5E5EA', borderRadius:'12px', overflow:'hidden' }}>
+        <div style={{ padding:'12px 16px', borderBottom:'1px solid #F2F2F7', display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ width:'28px', height:'28px', borderRadius:'50%', background:'#FFF0F0', border:'1px solid #FCA5A5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'14px' }}>🤖</div>
+          <div>
+            <div style={{ fontSize:'13px', fontWeight:700, color:'#1A1A1A' }}>{lang==='vi'?'Trợ lý AI':'AI Consultant'}</div>
+            <div style={{ fontSize:'11px', color:'#AAA' }}>{lang==='vi'?'Hỏi về hoạt động hôm nay':'Ask anything about today\'s operations'}</div>
+          </div>
+        </div>
+        {/* Messages */}
+        <div style={{ height:'180px', overflowY:'auto', padding:'12px 16px', display:'flex', flexDirection:'column', gap:'8px', background:'#FAFAFA' }}>
+          {chatMessages === null
+            ? <p style={{ fontSize:'12px', color:'#AAA', margin:0 }}>Loading…</p>
+            : chatMessages.length === 0
+              ? <p style={{ fontSize:'12px', color:'#AAA', margin:0 }}>{lang==='vi'?'Hãy bắt đầu cuộc trò chuyện…':'Start the conversation…'}</p>
+              : chatMessages.slice(-20).map(m => (
+                <div key={m.id} style={{ display:'flex', justifyContent: m.role==='user'?'flex-end':'flex-start' }}>
+                  <div style={ m.role==='user'
+                    ? { maxWidth:'70%', padding:'8px 12px', background:'#E8002A', color:'white', borderRadius:'14px 14px 4px 14px', fontSize:'13px', lineHeight:1.4 }
+                    : { maxWidth:'80%', padding:'8px 12px', background:'white', color:'#1A1A1A', border:'1px solid #E5E5EA', borderRadius:'4px 14px 14px 14px', fontSize:'13px', lineHeight:1.5 }
+                  }>{m.content}</div>
+                </div>
+              ))
+          }
+          {chatSending && <div style={{ display:'flex' }}><TypingDots /></div>}
+          <div ref={chatBottomRef} />
+        </div>
+        {/* Quick prompts */}
+        <div style={{ padding:'8px 16px 0', display:'flex', gap:'6px', flexWrap:'wrap', borderTop:'1px solid #F2F2F7' }}>
+          {(lang==='vi'
+            ? ['Doanh thu hôm nay?','Tồn kho nguy cơ?','Nhân viên ca này?']
+            : ['Revenue today?','Stock at risk?','Who\'s on shift?']
+          ).map(q => (
+            <button key={q} onClick={() => sendChat(q)} disabled={chatSending} style={{ padding:'4px 10px', borderRadius:'99px', border:'1px solid #FCA5A5', background:'#FFF0F0', color:'#E8002A', fontSize:'11px', cursor:'pointer', whiteSpace:'nowrap', opacity:chatSending?0.5:1 }}>{q}</button>
+          ))}
+        </div>
+        {/* Input */}
+        <form onSubmit={e => { e.preventDefault(); sendChat(chatInput) }} style={{ padding:'10px 16px', display:'flex', gap:'8px' }}>
+          <input
+            value={chatInput} onChange={e => setChatInput(e.target.value)}
+            placeholder={lang==='vi'?'Nhập câu hỏi…':'Type a question…'}
+            disabled={chatSending}
+            style={{ flex:1, padding:'8px 14px', border:'1px solid #E5E5EA', borderRadius:'99px', fontSize:'13px', outline:'none', background:'white' }}
+          />
+          <button type="submit" disabled={chatSending||!chatInput.trim()} style={{ padding:'8px 18px', background:'#E8002A', color:'white', border:'none', borderRadius:'99px', fontWeight:700, fontSize:'13px', cursor:'pointer', opacity:(chatSending||!chatInput.trim())?0.5:1 }}>
+            {lang==='vi'?'Gửi':'Send'}
+          </button>
+        </form>
+        {chatError && <p style={{ color:'#DC2626', fontSize:'11px', padding:'0 16px 8px', margin:0 }}>{chatError}</p>}
       </div>
 
       {/* ── KPI Row (7 cards) ── */}

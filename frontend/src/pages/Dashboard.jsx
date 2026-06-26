@@ -87,8 +87,6 @@ export default function Dashboard() {
     })
   }, [rawOrders])
 
-  const rangeRevenue = useMemo(() => rangeServed.reduce((s, o) => s + (o.total_amount || 0), 0), [rangeServed])
-
   // All range-driven KPI values share the same cutoff
   const rangeCutoff = useMemo(() => {
     if (revenueRange === 'day') {
@@ -101,6 +99,8 @@ export default function Dashboard() {
     if (!rawOrders) return []
     return rawOrders.filter((o) => o.status === 'served' && o.created_at && new Date(o.created_at) >= rangeCutoff)
   }, [rawOrders, rangeCutoff])
+
+  const rangeRevenue = useMemo(() => rangeServed.reduce((s, o) => s + (o.total_amount || 0), 0), [rangeServed])
 
   const topGuests = useMemo(() => {
     const map = {}

@@ -265,24 +265,17 @@ Respond with the executive brief only — no preamble.`
     ]
   }, [kpis, lang])
 
-  // ── Sales by Channel (derived from served orders in range) ───────────────
+  // ── Sales by Channel (Dine-in vs Takeaway from served orders in range) ───
   const channelData = useMemo(() => {
-    const counts = { 'Dine-in': 0, 'Takeaway': 0, 'GrabFood': 0, 'ShopeeFood': 0 }
+    let dineIn = 0, takeaway = 0
     for (const o of served) {
-      const pm = (o.payment_method || '').toLowerCase()
-      if (pm.includes('grab')) counts['GrabFood']++
-      else if (pm.includes('shopee')) counts['ShopeeFood']++
-      else if (o.table_id) counts['Dine-in']++
-      else counts['Takeaway']++
+      if (o.table_id) dineIn++
+      else takeaway++
     }
-    return Object.entries(counts)
-      .filter(([, v]) => v > 0)
-      .map(([name, value]) => ({
-        name: name === 'Dine-in' ? (lang === 'vi' ? 'Tại bàn' : 'Dine-in')
-            : name === 'Takeaway' ? (lang === 'vi' ? 'Mang về' : 'Takeaway')
-            : name,
-        value,
-      }))
+    return [
+      { name: lang === 'vi' ? 'Tại bàn' : 'Dine-in',  value: dineIn },
+      { name: lang === 'vi' ? 'Mang về' : 'Takeaway', value: takeaway },
+    ]
   }, [served, lang])
 
   // ── Alerts ────────────────────────────────────────────────────────────────

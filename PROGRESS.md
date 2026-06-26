@@ -1,6 +1,23 @@
 # Pang Pang SmartOps AI — Progress Tracker
 
-**Status as of 2026-06-26:** All 11 build steps complete. App deployed to Vercel (`https://final-wine-five.vercel.app`) + backend on Render (`https://pang-pang.onrender.com`). Full Supabase migration complete. Dashboard fully redesigned with sidebar layout, floor plan, guest tracking, and AI card. UI polish pass complete across all pages. Revenue seed script ready for demo busy-scenario.
+**Status as of 2026-06-26:** All build steps complete. Executive Dashboard fully redesigned with full analytics layout, AI-driven executive brief, and live Supabase data. App deployed and live.
+
+---
+
+## Submission Links
+
+| Item | Link |
+|---|---|
+| **GitHub Repository** | https://github.com/GIANG2385/FINAL |
+| **Live Vercel App** | https://final-wine-five.vercel.app |
+| **Backend (Render)** | https://pang-pang.onrender.com |
+| **Supabase Project** | `zekubqxngmhlfqbfgdzo` |
+
+### Login Credentials (demo)
+| Role | Email | Password |
+|---|---|---|
+| Admin / Manager | `hgiang2308@gmail.com` | *(see `.env`)* |
+| Staff | `staff.test@pangpang.local` | *(see `.env`)* |
 
 ---
 
@@ -268,3 +285,85 @@ CSS custom properties in `index.css`:
 - 14 staff shifts across 2 shifts.
 - 2 users: `hgiang2308@gmail.com` (admin), `staff.test@pangpang.local` (staff).
 - Kitchen queue: KQ-001 `in_progress`.
+
+---
+
+### 2026-06-26 (session 5 — Executive Dashboard full redesign + AI brief)
+
+**Executive Dashboard redesign** (`frontend/src/pages/Dashboard.jsx`)
+
+Complete rewrite replacing 4-KPI layout with full analytics dashboard:
+
+- **7-KPI strip** (Revenue, Food Cost, Labor Cost, Profit, Profit Margin %, Orders, Guests) with Today / 7D / 30D range toggle; KPI cards have colored top borders and negative-state red highlight for cost metrics
+- **Row 2**: Revenue Trend line chart (24 hourly buckets for Today, daily for 7D/30D — fixed bug where only 1 bucket was built) | Sales by Channel horizontal bar (Dine-in vs Takeaway derived from `table_id` presence on served orders in range)
+- **Row 3**: Hourly/Daily Sales column chart | Top Selling Items horizontal bar (from `orders[].items` frequency)
+- **Cost Breakdown donut** | **Payment Methods donut** (both from live order data)
+- **Bottom 4-column row**: Recent Orders · AI Alerts (deduplicated) · Inventory At-Risk (<8h stock) · Staff on Shift
+- All charts use `recharts` (LineChart, BarChart, PieChart); bilingual VI/EN
+
+**AI Executive Brief card** (above KPI row)
+
+- On dashboard mount, reads live Supabase data (today revenue vs yesterday, top items, inventory at-risk <4h, staff on shift, active alerts) and auto-sends a structured prompt to `/api/consultant/messages`
+- AI (Cohere) returns a 2-3 sentence natural-language brief e.g. *"Revenue is tracking ₫9.4M so far, up 18% vs yesterday. Signature Ribs are your top mover. Chicken thighs flagged at 1.8h — restock before the dinner rush."*
+- Styled as a dark (`#1A1A1A`) card with red accent; shows animated typing dots while generating; fires once per page load via `useRef` guard
+- "Ask AI →" button links to full `/consultant` chat page
+
+**Seed data update** (`backend/src/scripts/seedSupabase.js`)
+
+- Added ~25% takeaway orders (`table_id: null`) to 30-day history
+- Added 4 explicit takeaway orders to today's served batch
+- Total: 662 orders — ₫9.4M today, ₫491M / 30 days
+
+**Bug fixes**
+
+- Revenue Trend "Today" showed 0: the day-loop only created 1 bucket (`00:00`). Fixed by building all 24 hourly slots independently
+- Sales by Channel was hardcoded static values — now computed from `served` orders in the selected range
+- Profit Margin gauge removed from Row 2 (duplicate of KPI card %); Row 2 simplified to 2 columns
+
+---
+
+## Claude Conversation History — Key Prompts & Iterations
+
+This section captures the major prompts and decision points from the AI-assisted development sessions.
+
+### Session 1 — FOH & BOH CRUD, Guest Management, Settings cleanup
+
+| Prompt | What changed |
+|---|---|
+| *"in the orders/ready, only show today dishes, the newest dishes is pushed to the top"* | Added `todayStart` filter + `.sort()` by `completed_at` desc in `FrontOfHouse.jsx` |
+| *"add a new function of adjust (adding/deleting) the new items in the inventory and new labor. Also guest management add/delete"* | Added full CRUD forms + handlers to `BackOfHouse.jsx` and `GuestEngagement.jsx` |
+| *"remove setting department, only keep the button to switch language"* | Removed `Settings.jsx`, `/settings` route, sidebar link; language toggle stays in top bar |
+| *"in the inventory, only show the latest data (top 10 orders) and add export csv"* | Added `.slice(0,10)`, `exportCsv()` helper, Export buttons across all major tables |
+| *"I can edit added ingredients"* | Added inline edit row for inventory with Save/Cancel per row |
+| *"also add edit for staff shifts"* | Added inline edit for labor shifts with `datetime-local` inputs |
+
+### Session 2 — Bug fixes from bug report
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| Guest member add — total count unchanged | Insert used `phone` column (doesn't exist); missing `reservation_id` | Matched FOH schema: added `reservation_id: crypto.randomUUID()`, stored phone in `note` |
+| Float precision `1.7400000000000002` in stock | `Math.round(newVal * 10) / 10` | Changed to `parseFloat(newVal.toFixed(1))` |
+| Past stockout times shown (e.g. "04:52") | No check whether `stockout_at` had already passed | Added `new Date(item.stockout_at) <= new Date()` guard → shows "⚠ Out of stock" |
+| Duplicate insights (45 entries, 3 unique) | No deduplication in `Insights.jsx` | Deduplicated by `summary_vi \|\| summary_en` key, keeping most recent |
+| Dead notification bell | No `onClick` handler on bell button | Added `onClick={() => navigate('/insights')}` in `AppShell.jsx` |
+| Mixed VI/EN strings in VI mode | Hardcoded English subtitles throughout | Added `i18n.language === 'vi' ? ... : ...` ternaries |
+
+### Session 3 — Revenue export & Supply tab
+
+| Prompt | What changed |
+|---|---|
+| *"add export revenue for today, 7d, month"* | Added Today/7D/30D export buttons in BOH Supply & Revenue tab |
+| *"the export csv must separate each orders"* | Changed from daily-aggregate CSV to one row per order from `allOrders` Supabase fetch; headers: Order ID, Created At, Table, Status, Payment Method, Total (VND), Items |
+
+### Session 4 — Executive Dashboard redesign
+
+| Prompt | What changed |
+|---|---|
+| *"redesign the executive view, replace the 4kpi card only with this dashboard [ASCII layout]"* | Full rewrite of `Dashboard.jsx` with 7-KPI strip, 4 chart rows, bottom summary tables using recharts |
+| *"recover the AI consultant summary instead of the full AI conversation, add a redirect button"* | Replaced mini chat widget with last-assistant-reply summary card + "Open chat →" Link |
+| *"connect the database then redirect the finding to summary… like 'Revenue is up 12%…'"* | Added auto-brief: loads live Supabase data on mount, builds structured prompt, sends to `/api/consultant/messages`, renders AI reply in dark executive card |
+| *"Today revenue in KPI shows 9.9M but revenue chart shows 0"* | Fixed `revenueTrend` — day mode built only 1 bucket; now builds all 24 hourly slots independently |
+| *"When I choose Today/7D/30D, sales by channel is the same"* | Sales by Channel was hardcoded static — now computed from `served` in range using `table_id` |
+| *"reconnect the database, sales by channel only be Dine-in or Takeaway"* | Simplified channel logic: `table_id` present → Dine-in, null → Takeaway; removed GrabFood/ShopeeFood |
+| *"create data for takeaway too"* | Seeded ~25% takeaway orders across 30-day history + 4 explicit takeaway orders today |
+| *"move the profit margin in second row to the first row, only keep one profit margin of percentage"* | Removed RadialBarChart gauge from Row 2; Row 2 is now 2-column: Revenue Trend + Sales by Channel |

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, RadialBarChart, RadialBar, Legend,
+  PieChart, Pie, Cell,
 } from 'recharts'
 import supabase from '../services/supabase'
 import { api } from '../services/api'
@@ -444,8 +444,8 @@ Respond with the executive brief only — no preamble.`
         })}
       </div>
 
-      {/* ── Row 2: Revenue Trend | Profit Gauge | Sales by Channel ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 220px 1fr', gap:'14px' }}>
+      {/* ── Row 2: Revenue Trend | Sales by Channel ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'14px' }}>
 
         {/* Revenue Trend */}
         <div style={card()}>
@@ -460,23 +460,6 @@ Respond with the executive brief only — no preamble.`
               <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
-        </div>
-
-        {/* Profit Gauge */}
-        <div style={{ ...card(), display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'8px', color:'#1A1A1A' }}>
-            {lang==='vi'?'Biên lợi nhuận':'Profit Margin'}
-          </div>
-          <ResponsiveContainer width="100%" height={130}>
-            <RadialBarChart cx="50%" cy="80%" innerRadius="60%" outerRadius="90%" startAngle={180} endAngle={0}
-              data={[{ name:'margin', value: Math.max(0, Math.min(100, kpis.margin)), fill: kpis.margin >= 20 ? '#16A34A' : kpis.margin >= 5 ? '#F59E0B' : '#DC2626' }]}>
-              <RadialBar dataKey="value" cornerRadius={6} background={{ fill:'#F2F2F7' }} />
-            </RadialBarChart>
-          </ResponsiveContainer>
-          <div style={{ fontSize:'22px', fontWeight:800, color: kpis.margin>=20?'#16A34A':kpis.margin>=5?'#F59E0B':'#DC2626', marginTop:'-32px' }}>
-            {pct(kpis.margin)}
-          </div>
-          <div style={{ fontSize:'11px', color:'#AAA', marginTop:'4px' }}>{lang==='vi'?'lợi nhuận/doanh thu':'profit / revenue'}</div>
         </div>
 
         {/* Sales by Channel */}

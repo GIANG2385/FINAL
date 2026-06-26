@@ -1,360 +1,561 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, RadialBarChart, RadialBar, Legend,
+} from 'recharts'
 import supabase from '../services/supabase'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
-const RANGE_DAYS = { day: 1, week: 7, month: 30 }
+const FOOD_COST_PCT = 0.32
+const HOURLY_WAGE   = 25000
+const RANGE_DAYS    = { day: 1, week: 7, month: 30 }
+const COLORS = ['#E8002A','#6366F1','#F59E0B','#22C55E','#0EA5E9','#A855F7']
 
-function formatVnd(amount) {
-  if (amount >= 1_000_000_000) return `₫${(amount / 1_000_000_000).toFixed(1)}B`
-  if (amount >= 1_000_000) return `₫${(amount / 1_000_000).toFixed(1)}M`
-  if (amount >= 1_000) return `₫${(amount / 1_000).toFixed(0)}K`
-  return `₫${amount}`
+function fmt(n) {
+  if (n >= 1_000_000_000) return `₫${(n/1_000_000_000).toFixed(1)}B`
+  if (n >= 1_000_000)     return `₫${(n/1_000_000).toFixed(1)}M`
+  if (n >= 1_000)         return `₫${(n/1_000).toFixed(0)}K`
+  return `₫${n}`
 }
+function pct(n) { return `${n.toFixed(1)}%` }
 
-const isSameDay = (date) => {
-  const now = new Date()
-  return date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-}
+const card = (extra = {}) => ({
+  background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px',
+  padding: '16px 18px', ...extra,
+})
 
-function getInitials(name) {
-  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-}
-
-const INITIALS_COLORS = ['#7C3AED', '#0369A1', '#059669', '#D97706', '#DB2777', '#0891B2']
-
-const TIER_PILL = {
-  Gold:   { bg: '#D97706', color: 'white' },
-  Silver: { bg: '#64748B', color: 'white' },
-  Bronze: { bg: '#C2410C', color: 'white' },
-}
+const KPI_META = [
+  { key: 'revenue',      label: ['Revenue','Doanh thu'],      icon: '₫',  color: '#E8002A' },
+  { key: 'foodCost',     label: ['Food Cost','Giá vốn'],      icon: '🍽', color: '#F59E0B' },
+  { key: 'laborCost',    label: ['Labor Cost','Nhân sự'],     icon: '👥', color: '#6366F1' },
+  { key: 'profit',       label: ['Profit','Lợi nhuận'],       icon: '📈', color: '#16A34A' },
+  { key: 'margin',       label: ['Margin','Biên LN'],         icon: '%',  color: '#0EA5E9' },
+  { key: 'orders',       label: ['Orders','Đơn hàng'],        icon: '🧾', color: '#A855F7' },
+  { key: 'guests',       label: ['Guests','Khách'],           icon: '⊞', color: '#EC4899' },
+]
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation()
-  const { user } = useAuth()
+  const lang = i18n.language
 
-  const [insights, setInsights] = useState([])
-  const [ackError, setAckError] = useState(null)
-  const [revenueRange, setRevenueRange] = useState('day')
-  const [rawOrders, setRawOrders] = useState(null)
-  const [tables, setTables] = useState(null)
+  const [rawOrders,    setRawOrders]    = useState(null)
+  const [staffShifts,  setStaffShifts]  = useState([])
+  const [tables,       setTables]       = useState(null)
+  const [insights,     setInsights]     = useState([])
+  const [inventoryRaw, setInventoryRaw] = useState([])
   const [reservations, setReservations] = useState([])
+  const [range,        setRange]        = useState('day')
+  const [ackError,     setAckError]     = useState(null)
 
   useEffect(() => {
-    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-
+    const monthAgo = new Date(Date.now() - 30 * 86400000)
     supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString())
       .then(({ data }) => setRawOrders(data || []))
-    supabase.from('tables').select('*')
-      .then(({ data }) => setTables(data || []))
-    supabase.from('insights').select('*')
-      .then(({ data }) => setInsights(data || []))
-    supabase.from('reservations').select('guest_name, status')
-      .then(({ data }) => setReservations(data || []))
+    supabase.from('tables').select('*').then(({ data }) => setTables(data || []))
+    supabase.from('insights').select('*').then(({ data }) => setInsights(data || []))
+    supabase.from('staff_shifts').select('*').then(({ data }) => setStaffShifts(data || []))
+    supabase.from('inventory').select('*').then(({ data }) => setInventoryRaw(data || []))
+    supabase.from('reservations').select('guest_name,status').then(({ data }) => setReservations(data || []))
 
-    const ordersChannel = supabase.channel('orders-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString())
-          .then(({ data }) => setRawOrders(data || []))
-      }).subscribe()
-
-    const tablesChannel = supabase.channel('tables-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
-        supabase.from('tables').select('*').then(({ data }) => setTables(data || []))
-      }).subscribe()
-
-    const insightsChannel = supabase.channel('insights-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'insights' }, () => {
-        supabase.from('insights').select('*').then(({ data }) => setInsights(data || []))
-      }).subscribe()
-
-    return () => {
-      supabase.removeChannel(ordersChannel)
-      supabase.removeChannel(tablesChannel)
-      supabase.removeChannel(insightsChannel)
-    }
+    const ch1 = supabase.channel('dash-orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () =>
+        supabase.from('orders').select('*').gte('created_at', monthAgo.toISOString()).then(({ data }) => setRawOrders(data || [])))
+      .subscribe()
+    const ch2 = supabase.channel('dash-tables')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () =>
+        supabase.from('tables').select('*').then(({ data }) => setTables(data || [])))
+      .subscribe()
+    const ch3 = supabase.channel('dash-insights')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insights' }, () =>
+        supabase.from('insights').select('*').then(({ data }) => setInsights(data || [])))
+      .subscribe()
+    return () => { supabase.removeChannel(ch1); supabase.removeChannel(ch2); supabase.removeChannel(ch3) }
   }, [])
 
-  const orders = useMemo(() => {
-    if (!rawOrders) return null
-    return rawOrders.filter((o) => {
-      const created = o.created_at ? new Date(o.created_at) : null
-      return created && isSameDay(created)
-    })
+  const cutoff = useMemo(() => {
+    if (range === 'day') { const d = new Date(); d.setHours(0,0,0,0); return d }
+    return new Date(Date.now() - RANGE_DAYS[range] * 86400000)
+  }, [range])
+
+  const rangeOrders = useMemo(() => {
+    if (!rawOrders) return []
+    return rawOrders.filter(o => o.created_at && new Date(o.created_at) >= cutoff)
+  }, [rawOrders, cutoff])
+
+  const served = useMemo(() => rangeOrders.filter(o => o.status === 'served'), [rangeOrders])
+
+  const kpis = useMemo(() => {
+    const revenue   = served.reduce((s,o) => s + (o.total_amount||0), 0)
+    const foodCost  = Math.round(revenue * FOOD_COST_PCT)
+    const laborCost = Math.round(staffShifts.reduce((s,sh) => {
+      const start = sh.shift_start ? new Date(sh.shift_start) : null
+      const end   = sh.shift_end   ? new Date(sh.shift_end)   : null
+      return s + (start && end ? Math.max(0,(end-start)/3600000) * HOURLY_WAGE : 0)
+    }, 0))
+    const profit = revenue - foodCost - laborCost
+    const margin = revenue > 0 ? (profit / revenue) * 100 : 0
+    return { revenue, foodCost, laborCost, profit, margin, orders: served.length, guests: served.length }
+  }, [served, staffShifts])
+
+  // ── Revenue Trend (line chart) ──────────────────────────────────────────
+  const revenueTrend = useMemo(() => {
+    if (!rawOrders) return []
+    const days = range === 'day' ? 1 : range === 'week' ? 7 : 30
+    const map = {}
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0,0,0,0)
+      const key = range === 'day'
+        ? `${String(d.getHours()).padStart(2,'0')}:00`
+        : `${d.getMonth()+1}/${d.getDate()}`
+      map[key] = 0
+    }
+    for (const o of rawOrders) {
+      if (o.status !== 'served' || !o.created_at) continue
+      const d = new Date(o.created_at)
+      if (d < cutoff) continue
+      const key = range === 'day'
+        ? `${String(d.getHours()).padStart(2,'0')}:00`
+        : `${d.getMonth()+1}/${d.getDate()}`
+      if (key in map) map[key] += o.total_amount || 0
+    }
+    return Object.entries(map).map(([label, revenue]) => ({ label, revenue }))
+  }, [rawOrders, range, cutoff])
+
+  // ── Hourly / Daily bar chart ────────────────────────────────────────────
+  const hourlyData = useMemo(() => {
+    if (!rawOrders) return []
+    if (range === 'day') {
+      const hours = {}
+      for (let h = 0; h < 24; h++) hours[h] = 0
+      for (const o of rawOrders) {
+        if (o.status !== 'served' || !o.created_at) continue
+        const d = new Date(o.created_at)
+        if (d < cutoff) continue
+        hours[d.getHours()] = (hours[d.getHours()] || 0) + (o.total_amount || 0)
+      }
+      return Object.entries(hours).map(([h, v]) => ({ label: `${h}h`, revenue: v }))
+    }
+    return revenueTrend
+  }, [rawOrders, range, cutoff, revenueTrend])
+
+  // ── Top Selling Items ────────────────────────────────────────────────────
+  const topItems = useMemo(() => {
+    const map = {}
+    for (const o of served) {
+      for (const item of (o.items || [])) {
+        const name = lang === 'vi' ? (item.name_vi || item.name || item.sku) : (item.name_en || item.name || item.sku)
+        if (!name) continue
+        map[name] = (map[name] || 0) + (item.qty || 1)
+      }
+    }
+    return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0,6).map(([name,qty]) => ({ name, qty }))
+  }, [served, lang])
+
+  // ── Payment Methods ──────────────────────────────────────────────────────
+  const paymentData = useMemo(() => {
+    const map = {}
+    for (const o of served) {
+      const pm = o.payment_method || 'unknown'
+      map[pm] = (map[pm] || 0) + 1
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value }))
+  }, [served])
+
+  // ── Cost Breakdown ────────────────────────────────────────────────────────
+  const costData = useMemo(() => {
+    if (kpis.revenue === 0) return []
+    return [
+      { name: lang === 'vi' ? 'Giá vốn' : 'Food Cost',   value: kpis.foodCost },
+      { name: lang === 'vi' ? 'Nhân sự' : 'Labor Cost',  value: kpis.laborCost },
+      { name: lang === 'vi' ? 'Lợi nhuận' : 'Profit',    value: Math.max(0, kpis.profit) },
+    ]
+  }, [kpis, lang])
+
+  // ── Sales by Channel (static) ─────────────────────────────────────────────
+  const channelData = [
+    { name: lang === 'vi' ? 'Tại bàn' : 'Dine-in',    value: 48 },
+    { name: lang === 'vi' ? 'Mang về' : 'Takeaway',   value: 15 },
+    { name: 'GrabFood',                                 value: 22 },
+    { name: 'ShopeeFood',                               value: 9  },
+  ]
+
+  // ── Alerts ────────────────────────────────────────────────────────────────
+  const alerts = useMemo(() => {
+    const deduped = Object.values(
+      insights.filter(i => i.status === 'new').reduce((acc, i) => {
+        const k = (i.summary_vi || i.summary_en || '').trim()
+        if (!acc[k] || i.created_at > acc[k].created_at) acc[k] = i
+        return acc
+      }, {})
+    ).sort((a,b) => b.created_at > a.created_at ? 1 : -1).slice(0, 4)
+    return deduped
+  }, [insights])
+
+  // ── Recent Orders ─────────────────────────────────────────────────────────
+  const recentOrders = useMemo(() => {
+    return [...(rawOrders||[])].sort((a,b) => b.created_at > a.created_at ? 1 : -1).slice(0,5)
   }, [rawOrders])
 
-  // All range-driven KPI values share the same cutoff
-  const rangeCutoff = useMemo(() => {
-    if (revenueRange === 'day') {
-      const d = new Date(); d.setHours(0, 0, 0, 0); return d
-    }
-    return new Date(Date.now() - RANGE_DAYS[revenueRange] * 24 * 60 * 60 * 1000)
-  }, [revenueRange])
+  // ── At-risk Inventory ─────────────────────────────────────────────────────
+  const atRisk = useMemo(() => {
+    const now = Date.now()
+    return inventoryRaw
+      .map(item => {
+        const hourly = (item.avg_daily_consumption || 0) / 24
+        const hoursLeft = hourly > 0 ? item.current_stock / hourly : null
+        return { ...item, hoursLeft }
+      })
+      .filter(item => item.hoursLeft !== null && item.hoursLeft <= 8)
+      .sort((a,b) => a.hoursLeft - b.hoursLeft)
+      .slice(0, 4)
+  }, [inventoryRaw])
 
-  const rangeServed = useMemo(() => {
-    if (!rawOrders) return []
-    return rawOrders.filter((o) => o.status === 'served' && o.created_at && new Date(o.created_at) >= rangeCutoff)
-  }, [rawOrders, rangeCutoff])
-
-  const rangeRevenue = useMemo(() => rangeServed.reduce((s, o) => s + (o.total_amount || 0), 0), [rangeServed])
-
-  const topGuests = useMemo(() => {
-    const map = {}
-    for (const r of reservations) {
-      if (r.status === 'cancelled') continue
-      if (!map[r.guest_name]) map[r.guest_name] = 0
-      map[r.guest_name]++
-    }
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([name, visits]) => ({
-        name, visits,
-        tier: visits >= 10 ? 'Gold' : visits >= 5 ? 'Silver' : 'Bronze',
-      }))
-  }, [reservations])
-
-  async function handleAcknowledge(id) {
-    try { await api.post(`/api/insights/${id}/acknowledge`) }
-    catch { setAckError(t('common.error')) }
-  }
+  // ── Staff on shift ────────────────────────────────────────────────────────
+  const nowTime = new Date()
+  const onShift = staffShifts.filter(s => {
+    const start = s.shift_start ? new Date(s.shift_start) : null
+    const end   = s.shift_end   ? new Date(s.shift_end)   : null
+    return start && end && start <= nowTime && nowTime <= end
+  })
 
   if (rawOrders === null || tables === null) {
-    return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: '#888', fontSize: '14px' }}>Loading…</span></div>
+    return <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <span style={{ color:'#888', fontSize:'14px' }}>Loading…</span>
+    </div>
   }
 
-  const servedToday = (orders || []).filter((o) => o.status === 'served')
-  const todayRevenue = servedToday.reduce((sum, o) => sum + (o.total_amount || 0), 0)
-  const covers = servedToday.length
-  const avgTicket = covers > 0 ? todayRevenue / covers : 0
-  const occupied = tables.filter((tb) => tb.status === 'dining' || tb.status === 'reserved').length
+  const occupied = tables.filter(t => t.status === 'dining' || t.status === 'reserved').length
+  const dateLabel = nowTime.toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US', { weekday:'long', month:'long', day:'numeric' })
 
-  const activeInsights = insights.filter((i) => i.status !== 'acted_on')
-  const deduped = activeInsights.reduce((acc, insight) => {
-    const key = (insight.summary_en || '') + insight.type
-    const existing = acc.find((a) => a._key === key)
-    if (existing) { existing._count = (existing._count || 1) + 1 }
-    else acc.push({ ...insight, _key: key, _count: 1 })
-    return acc
-  }, [])
-  const dashboardAlerts = deduped.slice(0, 3)
+  const rangeLabel = range === 'day'
+    ? (lang === 'vi' ? 'Hôm nay' : 'Today')
+    : range === 'week' ? '7D' : '30D'
 
-  const now = new Date()
-  const shiftLabel = now.getHours() < 15 ? 'Lunch Shift' : 'Dinner Shift'
-  const dateLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-
-  const sortedTables = [...tables].sort((a, b) =>
-    parseInt(a.table_id.replace(/\D/g, '')) - parseInt(b.table_id.replace(/\D/g, ''))
-  )
+  const TooltipVnd = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div style={{ background:'white', border:'1px solid #E5E5EA', borderRadius:'8px', padding:'8px 12px', fontSize:'12px' }}>
+        <div style={{ color:'#888', marginBottom:'2px' }}>{label}</div>
+        <div style={{ fontWeight:700, color:'#E8002A' }}>{fmt(payload[0].value)}</div>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:'16px' }}>
 
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px' }}>
+      {/* ── Header ── */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
-          <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Executive Dashboard</h1>
-          <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Real-time performance · <strong>{shiftLabel}</strong> · {dateLabel}</p>
+          <h1 style={{ fontSize:'24px', fontWeight:800, color:'#1A1A1A', margin:'0 0 2px', letterSpacing:'-0.02em' }}>
+            {lang === 'vi' ? 'Bảng điều hành' : 'Executive Dashboard'}
+          </h1>
+          <p style={{ margin:0, fontSize:'13px', color:'#888' }}>{dateLabel}</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: '99px', padding: '5px 12px' }}>
-          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#166534' }}>{i18n.language === 'vi' ? 'Hệ thống hoạt động' : 'System Live'}</span>
-        </div>
-      </div>
-
-      {/* KPI row */}
-      <div style={{ marginBottom: '18px' }}>
-        {/* Section header with range toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Performance Metrics</span>
-          <div style={{ display: 'flex', gap: '4px', background: '#F2F2F7', borderRadius: '8px', padding: '3px' }}>
-            {[['day','Today'], ['week','7D'], ['month','30D']].map(([r, label]) => (
-              <button key={r} onClick={() => setRevenueRange(r)} style={{ borderRadius: '6px', padding: '4px 12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: 600, background: revenueRange === r ? 'white' : 'transparent', color: revenueRange === r ? '#E8002A' : '#888', boxShadow: revenueRange === r ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
-                {label}
-              </button>
+        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+          <div style={{ display:'flex', gap:'3px', background:'#F2F2F7', borderRadius:'8px', padding:'3px' }}>
+            {[['day', lang==='vi'?'Hôm nay':'Today'], ['week','7D'], ['month','30D']].map(([r,lbl]) => (
+              <button key={r} onClick={() => setRange(r)} style={{
+                borderRadius:'6px', padding:'4px 14px', fontSize:'12px', border:'none', cursor:'pointer',
+                fontWeight:600, background: range===r ? 'white' : 'transparent',
+                color: range===r ? '#E8002A' : '#888',
+                boxShadow: range===r ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}>{lbl}</button>
             ))}
           </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px' }}>
-          {(() => {
-            const rangeCovers = rangeServed.length
-            const rangeAvg = rangeCovers > 0 ? rangeRevenue / rangeCovers : 0
-            const rangeSub = revenueRange === 'day' ? 'today' : revenueRange === 'week' ? 'last 7 days' : 'last 30 days'
-            return [
-              { label: 'Revenue',    value: formatVnd(rangeRevenue),  icon: '₫',  deltaUp: rangeRevenue > 0,  delta: formatVnd(rangeRevenue),  sub: rangeSub },
-              { label: 'Covers',     value: rangeCovers,               icon: '👥', deltaUp: rangeCovers > 0,   delta: `${rangeCovers} orders`,  sub: rangeSub },
-              { label: 'Avg Ticket', value: formatVnd(rangeAvg),       icon: '🧾', deltaUp: rangeAvg > 0,      delta: formatVnd(rangeAvg),      sub: 'per order' },
-              { label: 'Occupancy',  value: `${occupied}/${tables.length}`, icon: '⊞', deltaUp: occupied > tables.length / 2, delta: `${Math.round((occupied / Math.max(tables.length,1)) * 100)}%`, sub: 'tables now' },
-            ].map((kpi) => (
-              <div key={kpi.label} style={{ background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px', padding: '16px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                <span style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #FFB3C1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: '#E8002A', marginBottom: '10px' }}>{kpi.icon}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>{kpi.label}</span>
-                <div style={{ fontSize: '28px', fontWeight: 800, color: '#1A1A1A', lineHeight: 1.1, marginBottom: '8px' }}>{kpi.value}</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: kpi.deltaUp ? '#16A34A' : '#888' }}>{kpi.deltaUp ? '▲' : '—'}</span>
-                  <span style={{ fontSize: '11px', color: '#AAA' }}>{kpi.sub}</span>
-                </div>
-              </div>
-            ))
-          })()}
-        </div>
-      </div>
-
-      {/* AI consultant card */}
-      <div style={{ background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 60%, #4338CA 100%)', borderRadius: '14px', padding: '20px 24px', marginBottom: '18px', display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>🤖</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <span style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>AI Consultant: Mid-Shift Narrative</span>
-            <span style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 8px', borderRadius: '99px' }}>{i18n.language === 'vi' ? 'TRỰC TIẾP' : 'LIVE INSIGHT'}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:'5px', background:'#DCFCE7', border:'1px solid #86EFAC', borderRadius:'99px', padding:'4px 12px' }}>
+            <span style={{ width:'6px', height:'6px', borderRadius:'50%', background:'#16A34A', display:'inline-block' }} />
+            <span style={{ fontSize:'11px', fontWeight:600, color:'#166534' }}>{lang==='vi'?'Hệ thống hoạt động':'System Live'}</span>
           </div>
-          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', lineHeight: 1.6, margin: '0 0 14px' }}>
-            {i18n.language === 'vi'
-              ? `Hôm nay có ${covers} lượt khách với doanh thu ${formatVnd(todayRevenue)}. ${occupied > 0 ? `Hiện có ${occupied} bàn đang sử dụng.` : 'Chưa có bàn nào.'} ${activeInsights.length > 0 ? `Có ${activeInsights.length} cảnh báo cần xử lý.` : 'Không có cảnh báo.'}`
-              : `Today logged ${covers} covers — revenue ${formatVnd(todayRevenue)}. ${occupied > 0 ? `${occupied}/${tables.length} tables active.` : 'No tables occupied yet.'} ${activeInsights.length > 0 ? `${activeInsights.length} alert${activeInsights.length > 1 ? 's' : ''} need attention.` : 'No active alerts.'}`}
-          </p>
-          <Link to="/consultant" style={{ border: '1px solid rgba(255,255,255,0.4)', color: 'white', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '7px 16px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textDecoration: 'none' }}>Open AI Consultant →</Link>
         </div>
       </div>
 
-      {/* Alerts + Floor plan */}
-      <div style={{ display: 'grid', gridTemplateColumns: '44% 1fr', gap: '16px', marginBottom: '18px', alignItems: 'stretch' }}>
+      {/* ── KPI Row (7 cards) ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:'10px' }}>
+        {KPI_META.map(({ key, label, icon, color }) => {
+          let raw = kpis[key]
+          let display = key === 'margin' ? pct(raw) : key === 'revenue' || key === 'foodCost' || key === 'laborCost' || key === 'profit' ? fmt(raw) : raw
+          const negative = key === 'foodCost' || key === 'laborCost' || (key === 'profit' && raw < 0)
+          return (
+            <div key={key} style={{ background:'white', border:`1px solid ${negative?'#FCA5A5':'#E5E5EA'}`, borderTop:`3px solid ${color}`, borderRadius:'10px', padding:'12px 10px', textAlign:'center' }}>
+              <div style={{ fontSize:'16px', marginBottom:'6px' }}>{icon}</div>
+              <div style={{ fontSize:'10px', fontWeight:700, color:'#AAA', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'4px' }}>
+                {lang==='vi' ? label[1] : label[0]}
+              </div>
+              <div style={{ fontSize:'17px', fontWeight:800, color: negative?'#DC2626': key==='profit'&&raw>0?'#16A34A':'#1A1A1A', lineHeight:1.1 }}>{display}</div>
+              <div style={{ fontSize:'10px', color:'#AAA', marginTop:'3px' }}>{rangeLabel}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── Row 2: Revenue Trend | Profit Gauge | Sales by Channel ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 220px 1fr', gap:'14px' }}>
+
+        {/* Revenue Trend */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'12px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Xu hướng doanh thu':'Revenue Trend'}
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={revenueTrend} margin={{ top:4, right:4, left:0, bottom:0 }}>
+              <XAxis dataKey="label" tick={{ fontSize:10, fill:'#AAA' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis hide />
+              <Tooltip content={<TooltipVnd />} />
+              <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Profit Gauge */}
+        <div style={{ ...card(), display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'8px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Biên lợi nhuận':'Profit Margin'}
+          </div>
+          <ResponsiveContainer width="100%" height={130}>
+            <RadialBarChart cx="50%" cy="80%" innerRadius="60%" outerRadius="90%" startAngle={180} endAngle={0}
+              data={[{ name:'margin', value: Math.max(0, Math.min(100, kpis.margin)), fill: kpis.margin >= 20 ? '#16A34A' : kpis.margin >= 5 ? '#F59E0B' : '#DC2626' }]}>
+              <RadialBar dataKey="value" cornerRadius={6} background={{ fill:'#F2F2F7' }} />
+            </RadialBarChart>
+          </ResponsiveContainer>
+          <div style={{ fontSize:'22px', fontWeight:800, color: kpis.margin>=20?'#16A34A':kpis.margin>=5?'#F59E0B':'#DC2626', marginTop:'-32px' }}>
+            {pct(kpis.margin)}
+          </div>
+          <div style={{ fontSize:'11px', color:'#AAA', marginTop:'4px' }}>{lang==='vi'?'lợi nhuận/doanh thu':'profit / revenue'}</div>
+        </div>
+
+        {/* Sales by Channel */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'12px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Doanh số theo kênh':'Sales by Channel'}
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart layout="vertical" data={channelData} margin={{ top:0, right:16, left:0, bottom:0 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'#555' }} axisLine={false} tickLine={false} width={70} />
+              <Tooltip formatter={(v) => v} />
+              <Bar dataKey="value" radius={[0,4,4,0]}>
+                {channelData.map((_,i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Row 3: Hourly/Daily Revenue | Top Selling Items ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'14px' }}>
+
+        {/* Hourly/Daily Column Chart */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'12px', color:'#1A1A1A' }}>
+            {range === 'day' ? (lang==='vi'?'Doanh thu theo giờ':'Hourly Sales') : (lang==='vi'?'Doanh thu theo ngày':'Daily Revenue')}
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={hourlyData} margin={{ top:4, right:4, left:0, bottom:0 }}>
+              <XAxis dataKey="label" tick={{ fontSize:9, fill:'#AAA' }} axisLine={false} tickLine={false} interval={range==='day'?3:'preserveStartEnd'} />
+              <YAxis hide />
+              <Tooltip content={<TooltipVnd />} />
+              <Bar dataKey="revenue" fill="#E8002A" radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Top Selling Items */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'12px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Món bán chạy nhất':'Top Selling Items'}
+          </div>
+          {topItems.length === 0 ? (
+            <p style={{ fontSize:'13px', color:'#AAA', margin:0 }}>{lang==='vi'?'Chưa có dữ liệu':'No data yet'}</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart layout="vertical" data={topItems} margin={{ top:0, right:16, left:0, bottom:0 }}>
+                <XAxis type="number" hide />
+                <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'#555' }} axisLine={false} tickLine={false} width={100} />
+                <Tooltip formatter={(v) => [`${v} sold`, '']} />
+                <Bar dataKey="qty" radius={[0,4,4,0]}>
+                  {topItems.map((_,i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 4: Cost Breakdown | Payment Methods ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'14px' }}>
+
+        {/* Cost Breakdown Donut */}
+        <div style={card({ display:'flex', flexDirection:'column' })}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'8px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Phân tích chi phí':'Cost Breakdown'}
+          </div>
+          {costData.length === 0 ? (
+            <p style={{ fontSize:'13px', color:'#AAA', margin:0 }}>{lang==='vi'?'Chưa có dữ liệu':'No data yet'}</p>
+          ) : (
+            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+              <ResponsiveContainer width={140} height={140}>
+                <PieChart>
+                  <Pie data={costData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3}>
+                    {costData.map((_,i) => <Cell key={i} fill={['#F59E0B','#6366F1','#16A34A'][i]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => fmt(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
+                {costData.map((d,i) => (
+                  <div key={d.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                      <span style={{ width:'10px', height:'10px', borderRadius:'2px', background:['#F59E0B','#6366F1','#16A34A'][i], display:'inline-block' }} />
+                      <span style={{ fontSize:'12px', color:'#555' }}>{d.name}</span>
+                    </div>
+                    <span style={{ fontSize:'12px', fontWeight:700, color:'#1A1A1A' }}>{fmt(d.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Payment Methods Donut */}
+        <div style={card({ display:'flex', flexDirection:'column' })}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'8px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Phương thức thanh toán':'Payment Methods'}
+          </div>
+          {paymentData.length === 0 ? (
+            <p style={{ fontSize:'13px', color:'#AAA', margin:0 }}>{lang==='vi'?'Chưa có dữ liệu':'No data yet'}</p>
+          ) : (
+            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+              <ResponsiveContainer width={140} height={140}>
+                <PieChart>
+                  <Pie data={paymentData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3}>
+                    {paymentData.map((_,i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v,n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
+                {paymentData.map((d,i) => {
+                  const total = paymentData.reduce((s,x) => s+x.value, 0)
+                  return (
+                    <div key={d.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                        <span style={{ width:'10px', height:'10px', borderRadius:'2px', background:COLORS[i%COLORS.length], display:'inline-block' }} />
+                        <span style={{ fontSize:'12px', color:'#555', textTransform:'capitalize' }}>{d.name}</span>
+                      </div>
+                      <span style={{ fontSize:'12px', fontWeight:700, color:'#1A1A1A' }}>{d.value} ({pct(d.value/total*100)})</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 5: Recent Orders | Alerts | Inventory | Staff ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'14px' }}>
+
+        {/* Recent Orders */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'10px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Đơn gần đây':'Recent Orders'}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+            {recentOrders.length === 0
+              ? <p style={{ fontSize:'12px', color:'#AAA', margin:0 }}>{lang==='vi'?'Chưa có đơn':'No orders yet'}</p>
+              : recentOrders.map((o) => {
+                const statusColor = o.status==='served'?'#16A34A':o.status==='cancelled'?'#DC2626':'#F59E0B'
+                return (
+                  <div key={o.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F2F2F7' }}>
+                    <div>
+                      <div style={{ fontSize:'12px', fontWeight:600, color:'#1A1A1A' }}>{o.table_id || '—'}</div>
+                      <div style={{ fontSize:'10px', color:'#AAA' }}>{o.created_at ? new Date(o.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}</div>
+                    </div>
+                    <div style={{ textAlign:'right' }}>
+                      <div style={{ fontSize:'12px', fontWeight:700, color:'#1A1A1A' }}>{fmt(o.total_amount||0)}</div>
+                      <div style={{ fontSize:'10px', fontWeight:600, color:statusColor, textTransform:'capitalize' }}>{o.status}</div>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
 
         {/* Alerts */}
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-            <span style={{ fontWeight: 700, fontSize: '14px', color: '#1A1A1A' }}>Urgent Alerts</span>
-            {dashboardAlerts.length > 0 && (
-              <span style={{ background: '#E8002A', color: 'white', fontSize: '10px', fontWeight: 700, borderRadius: '99px', padding: '2px 8px' }}>
-                {dashboardAlerts.length} ITEM{dashboardAlerts.length > 1 ? 'S' : ''}
-              </span>
-            )}
+        <div style={card()}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px' }}>
+            <span style={{ fontWeight:700, fontSize:'13px', color:'#1A1A1A' }}>{lang==='vi'?'Cảnh báo':'Alerts'}</span>
+            {alerts.length > 0 && <span style={{ background:'#E8002A', color:'white', fontSize:'9px', fontWeight:700, borderRadius:'99px', padding:'2px 7px' }}>{alerts.length}</span>}
           </div>
-          {ackError && <p style={{ color: '#DC2626', fontSize: '12px', marginBottom: '8px' }}>{ackError}</p>}
-          {dashboardAlerts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '24px 0' }}>
-              <div style={{ fontSize: '28px', marginBottom: '8px' }}>✅</div>
-              <p style={{ fontSize: '13px', color: '#888', margin: 0 }}>No active alerts</p>
-            </div>
-          ) : dashboardAlerts.map((insight) => {
-            const isCritical = insight.severity === 'critical'
-            const borderColor = isCritical ? '#E8002A' : insight.type === 'root_cause' ? '#6366F1' : '#F59E0B'
-            const iconBg = isCritical ? '#FEE2E2' : insight.type === 'root_cause' ? '#EDE9FE' : '#FEF9C3'
-            const icon = isCritical ? '⚠' : insight.type === 'root_cause' ? '📉' : '📦'
-            return (
-              <div key={insight.id} style={{ borderLeft: `4px solid ${borderColor}`, background: '#FAFAFA', borderRadius: '0 8px 8px 0', padding: '12px 14px', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>{icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <span style={{ fontWeight: 600, fontSize: '12px', color: '#1A1A1A' }}>
-                        {insight.type === 'risk_forecast' ? 'Stock Alert' : 'Revenue Alert'}
-                        {insight._count > 1 && <span style={{ color: '#888', fontWeight: 400, marginLeft: '4px' }}>(×{insight._count})</span>}
-                      </span>
-                      <span style={{ fontSize: '10px', color: '#AAA', whiteSpace: 'nowrap', marginLeft: '8px' }}>
-                        {new Date(insight.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '12px', color: '#555', margin: '3px 0 8px', lineHeight: 1.4 }}>
-                      {i18n.language === 'vi' ? insight.summary_vi : insight.summary_en}
-                    </p>
-                    {insight.status === 'new' && (
-                      <button onClick={() => handleAcknowledge(insight.id)} style={{ fontSize: '11px', color: borderColor, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontWeight: 600 }}>
-                        Mark as resolved →
-                      </button>
-                    )}
-                  </div>
+          {ackError && <p style={{ color:'#DC2626', fontSize:'11px', margin:'0 0 6px' }}>{ackError}</p>}
+          {alerts.length === 0
+            ? <div style={{ textAlign:'center', padding:'12px 0' }}>
+                <div style={{ fontSize:'24px' }}>✅</div>
+                <p style={{ fontSize:'12px', color:'#888', margin:'4px 0 0' }}>{lang==='vi'?'Không có cảnh báo':'All clear'}</p>
+              </div>
+            : alerts.map((ins) => (
+              <div key={ins.id} style={{ borderLeft:`3px solid ${ins.severity==='critical'?'#DC2626':'#F59E0B'}`, paddingLeft:'8px', marginBottom:'8px' }}>
+                <p style={{ fontSize:'11px', color:'#333', margin:'0 0 3px', lineHeight:1.4 }}>
+                  {lang==='vi' ? ins.summary_vi : ins.summary_en}
+                </p>
+                {ins.status==='new' && (
+                  <button onClick={async()=>{ try{await api.post(`/api/insights/${ins.id}/acknowledge`)}catch{setAckError('Error')} }}
+                    style={{ fontSize:'10px', color:'#E8002A', background:'none', border:'none', padding:0, cursor:'pointer', fontWeight:600 }}>
+                    {lang==='vi'?'Đã xử lý →':'Resolve →'}
+                  </button>
+                )}
+              </div>
+            ))}
+        </div>
+
+        {/* Inventory At-Risk */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'10px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Tồn kho nguy cơ':'Inventory Alert'}
+          </div>
+          {atRisk.length === 0
+            ? <div style={{ textAlign:'center', padding:'12px 0' }}>
+                <div style={{ fontSize:'24px' }}>📦</div>
+                <p style={{ fontSize:'12px', color:'#888', margin:'4px 0 0' }}>{lang==='vi'?'Tồn kho ổn định':'Stock levels OK'}</p>
+              </div>
+            : atRisk.map((item) => (
+              <div key={item.sku} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F2F2F7' }}>
+                <div style={{ fontSize:'12px', fontWeight:600, color:'#1A1A1A' }}>{lang==='vi'?item.name_vi:item.name_en}</div>
+                <div style={{ fontSize:'11px', fontWeight:700, color: item.hoursLeft<=2?'#DC2626':'#F59E0B' }}>
+                  {item.hoursLeft<=0 ? (lang==='vi'?'Hết':'Out') : `${item.hoursLeft.toFixed(1)}h`}
                 </div>
               </div>
-            )
-          })}
+            ))}
         </div>
 
-        {/* Floor plan */}
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <span style={{ fontWeight: 700, fontSize: '14px', color: '#1A1A1A' }}>Live Floor Status</span>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              {[{ color: '#E8002A', label: 'DINING' }, { color: 'white', border: '#CBD5E1', label: 'OPEN' }, { color: '#FFFBEB', border: '#F59E0B', label: 'CLEANUP' }].map((l) => (
-                <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: l.color, border: `1px solid ${l.border || l.color}` }} />
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#888', letterSpacing: '0.05em' }}>{l.label}</span>
+        {/* Staff Performance */}
+        <div style={card()}>
+          <div style={{ fontWeight:700, fontSize:'13px', marginBottom:'10px', color:'#1A1A1A' }}>
+            {lang==='vi'?'Nhân sự ca này':'Staff on Shift'}
+          </div>
+          <div style={{ marginBottom:'8px' }}>
+            <span style={{ fontSize:'22px', fontWeight:800, color:'#1A1A1A' }}>{onShift.length}</span>
+            <span style={{ fontSize:'12px', color:'#AAA', marginLeft:'4px' }}>/ {staffShifts.length} {lang==='vi'?'nhân viên':'staff'}</span>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+            {onShift.slice(0,4).map((s) => (
+              <div key={s.staff_id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #F2F2F7' }}>
+                <div>
+                  <div style={{ fontSize:'12px', fontWeight:600, color:'#1A1A1A' }}>{s.name}</div>
+                  <div style={{ fontSize:'10px', color:'#AAA', textTransform:'capitalize' }}>{s.role}</div>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ background: '#F5F0E8', borderRadius: '10px', padding: '14px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '8px', marginBottom: '8px' }}>
-              {sortedTables.map((tb) => {
-                const isDining = tb.status === 'dining'
-                const isReserved = tb.status === 'reserved'
-                const isCleanup = tb.status === 'cleanup'
-                const bg = isDining ? '#E8002A' : isCleanup ? '#FFFBEB' : 'white'
-                const border = isDining ? '#C5001F' : isReserved ? '#F59E0B' : isCleanup ? '#F59E0B' : '#CBD5E1'
-                const textColor = isDining ? 'white' : '#1A1A1A'
-                return (
-                  <div key={tb.table_id} style={{ background: bg, border: `2px ${isReserved ? 'dashed' : 'solid'} ${border}`, borderRadius: '8px', padding: '8px 6px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: textColor }}>{tb.table_id}</div>
-                    <div style={{ fontSize: '9px', color: isDining ? 'rgba(255,255,255,0.7)' : '#AAA', marginTop: '2px' }}>
-                      {isDining ? '●' : isReserved ? '◌' : isCleanup ? '↻' : '○'}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <div style={{ background: '#1A1A1A', color: 'white', fontSize: '9px', fontWeight: 700, borderRadius: '99px', padding: '2px 10px', letterSpacing: '0.1em' }}>MAIN ENTRANCE</div>
-            </div>
+                <span style={{ background:'#DCFCE7', color:'#166534', fontSize:'9px', fontWeight:700, borderRadius:'99px', padding:'2px 7px' }}>ON</span>
+              </div>
+            ))}
+            {onShift.length === 0 && <p style={{ fontSize:'12px', color:'#AAA', margin:0 }}>{lang==='vi'?'Không có ca làm':'No active shifts'}</p>}
           </div>
         </div>
       </div>
 
-      {/* Guest tracking */}
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #E5E5EA', padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-          <span style={{ fontWeight: 700, fontSize: '14px', color: '#1A1A1A' }}>High Value Guest Tracking</span>
-          <Link to="/guests" style={{ fontSize: '12px', color: '#E8002A', fontWeight: 600, textDecoration: 'none' }}>View All →</Link>
-        </div>
-        {topGuests.length === 0 ? (
-          <p style={{ fontSize: '13px', color: '#888', margin: 0 }}>No guest data yet.</p>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #F2F2F7' }}>
-                {['GUEST', 'TIER', 'VISITS', 'LAST VISIT', ''].map((h) => (
-                  <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#AAA', letterSpacing: '0.08em' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {topGuests.map((g, idx) => {
-                const tp = TIER_PILL[g.tier]
-                return (
-                  <tr key={g.name} style={{ borderBottom: '1px solid #F2F2F7' }}>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: INITIALS_COLORS[idx % INITIALS_COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
-                          {getInitials(g.name)}
-                        </div>
-                        <span style={{ fontWeight: 600, color: '#1A1A1A' }}>{g.name}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px' }}><span style={{ background: tp.bg, color: tp.color, borderRadius: '99px', padding: '3px 10px', fontSize: '11px', fontWeight: 700 }}>{g.tier}</span></td>
-                    <td style={{ padding: '12px', color: '#555' }}>{g.visits}</td>
-                    <td style={{ padding: '12px', color: '#AAA', fontSize: '12px' }}>—</td>
-                    <td style={{ padding: '12px' }}><button style={{ background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', color: '#CCC' }}>···</button></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   )
 }

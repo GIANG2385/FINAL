@@ -130,7 +130,7 @@ export default function BackOfHouse() {
 
     // ── orders (30 days) for export ──
     const monthStart = new Date(); monthStart.setDate(monthStart.getDate() - 30); monthStart.setHours(0, 0, 0, 0)
-    supabase.from('orders').select('id,created_at,status,total_amount,payment_method,table_id').gte('created_at', monthStart.toISOString()).then(({ data }) => {
+    supabase.from('orders').select('*').gte('created_at', monthStart.toISOString()).order('created_at', { ascending: false }).then(({ data }) => {
       setAllOrders(data || [])
     })
 
@@ -1089,52 +1089,25 @@ export default function BackOfHouse() {
                     if (days === 0) cutoff.setHours(0, 0, 0, 0)
                     else { cutoff.setDate(cutoff.getDate() - days); cutoff.setHours(0, 0, 0, 0) }
 
-                    const src = allOrders || []
-                    const inRange = src.filter((o) => new Date(o.created_at) >= cutoff)
-                    const served = inRange.filter((o) => o.status === 'served')
-                    const totalRevenue = served.reduce((s, o) => s + (o.total_amount || 0), 0)
-                    const avgOrderValue = served.length > 0 ? Math.round(totalRevenue / served.length) : 0
+                    const inRange = (allOrders || []).filter((o) => new Date(o.created_at) >= cutoff)
 
-                    // Group by day
-                    const byDay = {}
-                    for (const o of inRange) {
-                      const day = o.created_at.slice(0, 10)
-                      if (!byDay[day]) byDay[day] = { date: day, total_orders: 0, served_orders: 0, revenue: 0, cancelled: 0, payment_methods: {} }
-                      byDay[day].total_orders++
-                      if (o.status === 'served') { byDay[day].served_orders++; byDay[day].revenue += o.total_amount || 0 }
-                      if (o.status === 'cancelled') byDay[day].cancelled++
-                      const pm = o.payment_method || 'unknown'
-                      byDay[day].payment_methods[pm] = (byDay[day].payment_methods[pm] || 0) + 1
-                    }
+                    const headers = ['Order ID', 'Created At', 'Table', 'Status', 'Payment Method', 'Total (VND)', 'Items']
+                    const rows = inRange.map((o) => {
+                      const items = Array.isArray(o.items)
+                        ? o.items.map((it) => `${it.qty || 1}x ${it.name_en || it.name || it.sku || ''}`).join('; ')
+                        : ''
+                      return [
+                        o.id,
+                        o.created_at ? new Date(o.created_at).toLocaleString() : '',
+                        o.table_id || '',
+                        o.status || '',
+                        o.payment_method || '',
+                        o.total_amount ?? '',
+                        items,
+                      ]
+                    })
 
-                    const rows = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date))
-
-                    // Summary header rows
-                    const summaryRows = [
-                      [`Period`, label],
-                      [`Total Orders`, inRange.length],
-                      [`Served Orders`, served.length],
-                      [`Total Revenue (VND)`, totalRevenue],
-                      [`Avg Order Value (VND)`, avgOrderValue],
-                      [`Cancelled Orders`, inRange.filter(o => o.status === 'cancelled').length],
-                      [],
-                      ['Date', 'Total Orders', 'Served', 'Cancelled', 'Revenue (VND)', 'Payment Methods'],
-                      ...rows.map((r) => [
-                        r.date,
-                        r.total_orders,
-                        r.served_orders,
-                        r.cancelled,
-                        r.revenue,
-                        Object.entries(r.payment_methods).map(([k, v]) => `${k}:${v}`).join('; '),
-                      ]),
-                    ]
-
-                    const csv = summaryRows.map((r) => Array.isArray(r) ? r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') : '').join('\n')
-                    const filename = `revenue_${label.toLowerCase().replace(/\s/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
-                    const a = document.createElement('a')
-                    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-                    a.download = filename
-                    a.click()
+                    exportCsv(`orders_${label.toLowerCase().replace(/\s/g, '_')}`, headers, rows)
                   }}
                   style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '99px', padding: '8px 20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
                 >

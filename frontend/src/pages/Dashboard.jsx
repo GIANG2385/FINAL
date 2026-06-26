@@ -52,9 +52,11 @@ export default function Dashboard() {
   const [range,        setRange]        = useState('day')
   const [ackError,     setAckError]     = useState(null)
 
-  // AI Consultant last summary
+  // AI Consultant dashboard brief
   const [consultantMessages, setConsultantMessages] = useState(null)
-  const chatUidRef = useRef(null)
+  const [briefLoading,       setBriefLoading]       = useState(false)
+  const chatUidRef   = useRef(null)
+  const briefFiredRef = useRef(false)
 
   useEffect(() => {
     const monthAgo = new Date(Date.now() - 30 * 86400000)
@@ -96,6 +98,71 @@ export default function Dashboard() {
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [])
+
+  // Auto-generate executive brief once all data is loaded
+  useEffect(() => {
+    if (briefFiredRef.current) return
+    if (!rawOrders || !tables || staffShifts === null || inventoryRaw === null) return
+    if (!chatUidRef.current) return
+    briefFiredRef.current = true
+
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0)
+    const todayOrders = rawOrders.filter(o => o.status === 'served' && o.created_at && new Date(o.created_at) >= todayStart)
+    const todayRevenue = todayOrders.reduce((s,o) => s + (o.total_amount||0), 0)
+
+    // Yesterday same window for comparison
+    const ydStart = new Date(todayStart); ydStart.setDate(ydStart.getDate()-1)
+    const ydEnd   = new Date()
+    ydEnd.setDate(ydEnd.getDate()-1)
+    const ydOrders = rawOrders.filter(o => o.status === 'served' && o.created_at && new Date(o.created_at) >= ydStart && new Date(o.created_at) <= ydEnd)
+    const ydRevenue = ydOrders.reduce((s,o) => s + (o.total_amount||0), 0)
+    const revDelta = ydRevenue > 0 ? Math.round(((todayRevenue - ydRevenue)/ydRevenue)*100) : null
+
+    // Top items
+    const itemMap = {}
+    for (const o of todayOrders) for (const item of (o.items||[])) {
+      const name = item.name_en || item.name || item.sku
+      if (name) itemMap[name] = (itemMap[name]||0) + (item.qty||1)
+    }
+    const topItems = Object.entries(itemMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([n,q])=>`${n} (${q})`).join(', ')
+
+    // Inventory at risk
+    const atRiskItems = inventoryRaw
+      .map(item => { const h = (item.avg_daily_consumption||0)/24; return { ...item, hoursLeft: h>0?item.current_stock/h:null } })
+      .filter(i => i.hoursLeft !== null && i.hoursLeft <= 4)
+      .map(i => `${i.name_en||i.sku} (${i.hoursLeft.toFixed(1)}h left)`)
+
+    // Staff
+    const now = new Date()
+    const onShiftNow = staffShifts.filter(s => {
+      const st = s.shift_start ? new Date(s.shift_start) : null
+      const en = s.shift_end   ? new Date(s.shift_end)   : null
+      return st && en && st <= now && now <= en
+    })
+
+    // Active alerts
+    const activeAlerts = insights.filter(i=>i.status==='new').slice(0,3).map(i=>i.summary_en||i.summary_vi)
+
+    const dayName  = now.toLocaleDateString('en-US', { weekday:'long' })
+    const timeOfDay = now.getHours() < 12 ? 'morning' : now.getHours() < 17 ? 'afternoon' : 'evening'
+    const occupied  = tables.filter(t=>t.status==='dining'||t.status==='reserved').length
+
+    const prompt = `You are the AI operations advisor for PangPang restaurant. Generate a concise 2-3 sentence executive brief for the manager right now. Be specific, data-driven, and end with one concrete recommendation. Use natural language like a smart colleague would — no bullet points, no headers.
+
+Current snapshot (${dayName} ${timeOfDay}):
+- Revenue today so far: ₫${(todayRevenue/1000000).toFixed(1)}M across ${todayOrders.length} orders${revDelta !== null ? ` (${revDelta>0?'+':''}${revDelta}% vs same window yesterday)` : ''}
+- Tables occupied: ${occupied}/${tables.length}
+- Top selling items: ${topItems||'none yet'}
+- Staff on shift: ${onShiftNow.length} (${onShiftNow.map(s=>s.name||s.role).join(', ')||'none'})
+${atRiskItems.length ? `- Inventory at risk: ${atRiskItems.join(', ')}` : '- Inventory: all stock levels OK'}
+${activeAlerts.length ? `- Active alerts: ${activeAlerts.join('; ')}` : '- No active alerts'}
+
+Respond with the executive brief only — no preamble.`
+
+    setBriefLoading(true)
+    api.post('/api/consultant/messages', { message: prompt })
+      .finally(() => setBriefLoading(false))
+  }, [rawOrders, tables, staffShifts, inventoryRaw, insights])
 
   const cutoff = useMemo(() => {
     if (range === 'day') { const d = new Date(); d.setHours(0,0,0,0); return d }
@@ -295,45 +362,57 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── AI Consultant Summary ── */}
+      {/* ── AI Consultant Executive Brief ── */}
       {(() => {
+        // Find the most recent assistant reply that is a brief (not a user-triggered reply)
+        // We show the very last assistant message as the brief
         const lastAssistant = consultantMessages?.find(m => m.role === 'assistant')
-        const lastUser      = consultantMessages?.find(m => m.role === 'user')
-        const msgCount      = consultantMessages?.length ?? 0
-        const timeLabel     = lastAssistant?.created_at
+        const timeLabel = lastAssistant?.created_at
           ? new Date(lastAssistant.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
           : null
+        const isGenerating = briefLoading || (consultantMessages !== null && !lastAssistant && briefFiredRef.current)
         return (
-          <div style={{ background:'white', border:'1px solid #E5E5EA', borderRadius:'12px', padding:'14px 18px', display:'flex', alignItems:'flex-start', gap:'14px' }}>
-            <div style={{ width:'36px', height:'36px', borderRadius:'50%', background:'#FFF0F0', border:'1px solid #FCA5A5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px', flexShrink:0 }}>🤖</div>
+          <div style={{ background:'linear-gradient(135deg,#1A1A1A 0%,#2D1010 100%)', border:'1px solid #3D1515', borderRadius:'14px', padding:'16px 20px', display:'flex', alignItems:'flex-start', gap:'14px' }}>
+            {/* Icon */}
+            <div style={{ width:'40px', height:'40px', borderRadius:'50%', background:'rgba(232,0,42,0.2)', border:'1px solid rgba(232,0,42,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', flexShrink:0, marginTop:'2px' }}>🤖</div>
+
+            {/* Content */}
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px' }}>
-                <span style={{ fontSize:'13px', fontWeight:700, color:'#1A1A1A' }}>{lang==='vi'?'Trợ lý AI':'AI Consultant'}</span>
-                {msgCount > 0 && <span style={{ fontSize:'11px', color:'#AAA' }}>· {msgCount} {lang==='vi'?'tin nhắn':'messages'}</span>}
-                {timeLabel && <span style={{ fontSize:'11px', color:'#AAA' }}>· {timeLabel}</span>}
+              <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px' }}>
+                <span style={{ fontSize:'11px', fontWeight:700, color:'#E8002A', textTransform:'uppercase', letterSpacing:'0.1em' }}>
+                  {lang==='vi'?'Tóm tắt điều hành AI':'AI Executive Brief'}
+                </span>
+                {timeLabel && !isGenerating && (
+                  <span style={{ fontSize:'11px', color:'rgba(255,255,255,0.35)' }}>· {lang==='vi'?'Cập nhật lúc':'Updated at'} {timeLabel}</span>
+                )}
+                {isGenerating && (
+                  <span style={{ fontSize:'11px', color:'rgba(255,255,255,0.4)', display:'flex', alignItems:'center', gap:'5px' }}>
+                    <span style={{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:'#E8002A', animation:'scaleBounce 1s 0s infinite' }} />
+                    <span style={{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:'#E8002A', animation:'scaleBounce 1s 0.2s infinite' }} />
+                    <span style={{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:'#E8002A', animation:'scaleBounce 1s 0.4s infinite' }} />
+                    &nbsp;{lang==='vi'?'Đang phân tích…':'Analysing…'}
+                  </span>
+                )}
               </div>
-              {consultantMessages === null ? (
-                <p style={{ margin:0, fontSize:'13px', color:'#AAA' }}>Loading…</p>
+
+              {consultantMessages === null || (isGenerating && !lastAssistant) ? (
+                <p style={{ margin:0, fontSize:'14px', color:'rgba(255,255,255,0.4)', fontStyle:'italic' }}>
+                  {lang==='vi'?'Đang kết nối dữ liệu và tạo tóm tắt…':'Connecting to live data and generating brief…'}
+                </p>
               ) : lastAssistant ? (
-                <>
-                  {lastUser && (
-                    <p style={{ margin:'0 0 6px', fontSize:'11px', color:'#AAA', fontStyle:'italic' }}>
-                      "{lastUser.content}"
-                    </p>
-                  )}
-                  <p style={{ margin:0, fontSize:'13px', color:'#333', lineHeight:1.6,
-                    display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
-                    {lastAssistant.content}
-                  </p>
-                </>
+                <p style={{ margin:0, fontSize:'14px', color:'rgba(255,255,255,0.92)', lineHeight:1.7, fontWeight:400 }}>
+                  {lastAssistant.content}
+                </p>
               ) : (
-                <p style={{ margin:0, fontSize:'13px', color:'#AAA' }}>
-                  {lang==='vi'?'Chưa có cuộc trò chuyện nào. Bắt đầu hỏi AI về hoạt động hôm nay.':'No conversation yet. Ask the AI about today\'s operations.'}
+                <p style={{ margin:0, fontSize:'14px', color:'rgba(255,255,255,0.45)', fontStyle:'italic' }}>
+                  {lang==='vi'?'Chưa có dữ liệu đủ để tạo tóm tắt.':'No data yet to generate a brief.'}
                 </p>
               )}
             </div>
-            <Link to="/consultant" style={{ flexShrink:0, padding:'7px 16px', background:'#E8002A', color:'white', border:'none', borderRadius:'99px', fontWeight:600, fontSize:'12px', cursor:'pointer', textDecoration:'none', whiteSpace:'nowrap' }}>
-              {lang==='vi'?'Mở trò chuyện →':'Open chat →'}
+
+            {/* CTA */}
+            <Link to="/consultant" style={{ flexShrink:0, padding:'8px 18px', background:'#E8002A', color:'white', borderRadius:'99px', fontWeight:700, fontSize:'12px', textDecoration:'none', whiteSpace:'nowrap', alignSelf:'center' }}>
+              {lang==='vi'?'Hỏi AI →':'Ask AI →'}
             </Link>
           </div>
         )

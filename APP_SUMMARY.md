@@ -18,7 +18,7 @@ in
 - Unauthorized route → redirect to `/foh`
 
 **Test accounts:**
-- `hgiang2308@gmail.com` — admin
+- `hgiang2308@gmail.com` — admin/ pass: "123456"
 - `staff.test@pangpang.local` — staff
 
 ---

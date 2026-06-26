@@ -65,12 +65,12 @@ Dark sticky navbar (`--pp-navbar-bg: #1A1A1A`). Active link = bold + red underli
 
 | Nav item | Route | Roles |
 |---|---|---|
-| Dashboard | `/` | manager, admin |
+| Dashboard | `/` | admin |
 | Front of House | `/foh` | all |
 | Back of House | `/boh` | all |
 | Guest Management | `/guests` | all |
 | Insights | `/insights` | all |
-| AI Consultant | `/consultant` | manager, admin |
+| AI Consultant | `/consultant` | admin |
 | Settings | `/settings` | all |
 
 VI/EN toggle pill in navbar (right side). User email + logout button.
@@ -291,7 +291,3 @@ Backend scheduler runs `runAnalysisInternal()` every 30s.
 - **AI Consultant:** replies in real-time without page refresh
 
 ---
-bas/com
-## UI Issues to Fix (your notes here)
-
-rearrange the table and fix the color that make user easier to look at

@@ -210,7 +210,7 @@ export default function BackOfHouse() {
   const getStock = (item) => localStock[item.sku] !== undefined ? localStock[item.sku] : (item.current_stock ?? 0)
 
   function updateStock(sku, newVal) {
-    const val = Math.max(0, Math.round(newVal * 10) / 10)
+    const val = Math.max(0, parseFloat(newVal.toFixed(1)))
     setLocalStock((prev) => ({ ...prev, [sku]: val }))
   }
 
@@ -415,7 +415,7 @@ export default function BackOfHouse() {
     <div style={{ padding: '24px 28px' }}>
       <div style={{ marginBottom: '18px' }}>
         <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Stock Control</h1>
-        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Inventory · recipes · labor · supply chain</p>
+        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>{i18n.language === 'vi' ? 'Tồn kho · công thức · nhân sự · cung ứng' : 'Inventory · recipes · labor · supply chain'}</p>
       </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--pp-border)', marginBottom: '24px' }}>
@@ -546,7 +546,11 @@ export default function BackOfHouse() {
                         <td style={{ padding: '12px' }}>{Number(stock).toFixed(2)} {item.unit}</td>
                         <td style={{ padding: '12px', color: 'var(--pp-text-muted)' }}>{Number(parLevel).toFixed(2)} {item.unit}</td>
                         <td style={{ padding: '12px', color: rowStatus === 'critical' ? 'var(--pp-danger-text)' : 'var(--pp-text-muted)', fontWeight: rowStatus === 'critical' ? 600 : 400 }}>
-                          {item.stockout_at ? t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) }) : '—'}
+                          {item.stockout_at
+                            ? new Date(item.stockout_at) <= new Date()
+                              ? (i18n.language === 'vi' ? '⚠ Đã hết hàng' : '⚠ Out of stock')
+                              : t('boh.willRunOutBy', { time: formatTime(new Date(item.stockout_at), i18n.language) })
+                            : '—'}
                         </td>
                         <td style={{ padding: '12px' }}>
                           <input

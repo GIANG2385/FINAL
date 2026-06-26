@@ -162,7 +162,7 @@ export default function Dashboard() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: '99px', padding: '5px 12px' }}>
           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#166534' }}>System Live</span>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: '#166534' }}>{i18n.language === 'vi' ? 'Hệ thống hoạt động' : 'System Live'}</span>
         </div>
       </div>
 
@@ -211,7 +211,7 @@ export default function Dashboard() {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
             <span style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>AI Consultant: Mid-Shift Narrative</span>
-            <span style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 8px', borderRadius: '99px' }}>LIVE INSIGHT</span>
+            <span style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 8px', borderRadius: '99px' }}>{i18n.language === 'vi' ? 'TRỰC TIẾP' : 'LIVE INSIGHT'}</span>
           </div>
           <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', lineHeight: 1.6, margin: '0 0 14px' }}>
             {i18n.language === 'vi'

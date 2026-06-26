@@ -600,7 +600,7 @@ export default function FrontOfHouse() {
     <div style={{ padding: '24px 28px' }}>
       <div style={{ marginBottom: '18px' }}>
         <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Table Management</h1>
-        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>Floor operations · orders · reservations</p>
+        <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>{i18n.language === 'vi' ? 'Vận hành sảnh · đơn hàng · đặt bàn' : 'Floor operations · orders · reservations'}</p>
       </div>
 
       {spikeAlert && (

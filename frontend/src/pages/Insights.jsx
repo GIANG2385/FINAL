@@ -46,11 +46,20 @@ export default function Insights() {
     return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: '#888', fontSize: '14px' }}>{t('common.loading')}</span></div>
   }
 
-  const filtered = insights.filter(
+  // Deduplicate by summary text — keep the most recent of each unique message
+  const deduped = Object.values(
+    insights.reduce((acc, i) => {
+      const key = (i.summary_vi || i.summary_en || '').trim()
+      if (!acc[key] || i.created_at > acc[key].created_at) acc[key] = i
+      return acc
+    }, {})
+  ).sort((a, b) => (b.created_at ?? 0) > (a.created_at ?? 0) ? 1 : -1)
+
+  const filtered = deduped.filter(
     (i) => (!typeFilter || i.type === typeFilter) && (!severityFilter || i.severity === severityFilter)
   )
 
-  const counts = { total: insights.length, new: insights.filter(i => i.status === 'new').length, critical: insights.filter(i => i.severity === 'critical').length }
+  const counts = { total: deduped.length, new: deduped.filter(i => i.status === 'new').length, critical: deduped.filter(i => i.severity === 'critical').length }
 
   const selectStyle = { border: '1px solid #E5E5EA', borderRadius: '8px', padding: '6px 10px', fontSize: '13px', background: 'white', cursor: 'pointer', color: '#1A1A1A', outline: 'none' }
 
@@ -60,7 +69,7 @@ export default function Insights() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px' }}>
         <div>
           <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1A1A1A', margin: '0 0 4px', letterSpacing: '-0.02em' }}>{t('insights.title')}</h1>
-          <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>AI-generated alerts · refreshed on page load</p>
+          <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>{i18n.language === 'vi' ? 'Cảnh báo AI · cập nhật khi tải trang' : 'AI-generated alerts · refreshed on page load'}</p>
         </div>
         {counts.critical > 0 && (
           <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: '99px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}>

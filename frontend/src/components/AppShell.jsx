@@ -95,7 +95,7 @@ export default function AppShell({ children }) {
             >
               {i18n.language === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}
             </button>
-            <button style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666', lineHeight: 1 }}>🔔</button>
+            <button onClick={() => navigate('/insights')} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666', lineHeight: 1 }} title={i18n.language === 'vi' ? 'Xem cảnh báo' : 'View alerts'}>🔔</button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontWeight: 700, fontSize: '12px', color: '#1A1A1A', lineHeight: 1.2 }}>{userName}</div>

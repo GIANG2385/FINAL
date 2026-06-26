@@ -89,8 +89,15 @@ export default function Dashboard() {
 
   const rangeRevenue = useMemo(() => {
     if (!rawOrders) return null
-    const days = RANGE_DAYS[revenueRange] ?? 1
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    let cutoff
+    if (revenueRange === 'day') {
+      // Today only — calendar day, not rolling 24h
+      cutoff = new Date()
+      cutoff.setHours(0, 0, 0, 0)
+    } else {
+      const days = RANGE_DAYS[revenueRange] ?? 7
+      cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    }
     return rawOrders
       .filter((o) => o.status === 'served' && o.created_at && new Date(o.created_at) >= cutoff)
       .reduce((sum, o) => sum + (o.total_amount || 0), 0)

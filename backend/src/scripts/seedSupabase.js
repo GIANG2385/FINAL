@@ -205,11 +205,11 @@ const DINNER_HOURS = [17, 18, 18, 19, 19, 19, 20, 20, 21]
 
 console.log('\nGenerating 30-day order history…')
 
-// Delete existing historical orders (keep today's live ones by not touching status≠served created today)
-const cutoffISO = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate()).toISOString()
-const { error: delErr } = await supabase.from('orders').delete().lt('created_at', cutoffISO)
+// Wipe ALL existing orders so old seeds don't pollute revenue figures
+const { error: delErr } = await supabase.from('orders').delete().neq('id', '__none__')
 if (delErr) console.warn('  Could not delete old orders:', delErr.message)
-else console.log('  Cleared old orders before today')
+else console.log('  Cleared all existing orders')
+const cutoffISO = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate()).toISOString()
 
 const allOrders = []
 let orderId = 1

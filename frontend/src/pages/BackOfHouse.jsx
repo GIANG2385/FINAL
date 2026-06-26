@@ -72,6 +72,8 @@ export default function BackOfHouse() {
   const [showAddInventory, setShowAddInventory] = useState(false)
   const [newInvItem, setNewInvItem] = useState({ name_en: '', name_vi: '', unit: '', current_stock: '', par_level: '' })
   const [invError, setInvError] = useState(null)
+  const [editingInvSku, setEditingInvSku] = useState(null)
+  const [editInvValues, setEditInvValues] = useState({ name_en: '', name_vi: '', unit: '', par_level: '' })
   const [showAddStaff, setShowAddStaff] = useState(false)
   const [newStaff, setNewStaff] = useState({ name: '', role: '', shift_start: '', shift_end: '' })
   const [staffError, setStaffError] = useState(null)
@@ -321,6 +323,22 @@ export default function BackOfHouse() {
     try { await supabase.from('inventory').delete().eq('sku', sku) } catch (e) { console.error(e) }
   }
 
+  async function handleSaveInvEdit(sku) {
+    const name_en = editInvValues.name_en.trim()
+    const name_vi = editInvValues.name_vi.trim()
+    const unit = editInvValues.unit.trim()
+    const par_level = parseFloat(editInvValues.par_level)
+    if (!name_en || !name_vi || !unit || isNaN(par_level)) {
+      setInvError(i18n.language === 'vi' ? 'Vui lòng điền đầy đủ thông tin' : 'All fields are required')
+      return
+    }
+    try {
+      await supabase.from('inventory').update({ name_en, name_vi, unit, par_level }).eq('sku', sku)
+      setEditingInvSku(null)
+      setInvError(null)
+    } catch (e) { console.error(e); setInvError(e.message || 'Error saving') }
+  }
+
   async function handleAddStaff() {
     const name = newStaff.name.trim()
     const role = newStaff.role.trim()
@@ -461,6 +479,36 @@ export default function BackOfHouse() {
                     const stock = getStock(item)
                     const parLevel = item.par_level
                     const rowStatus = stock <= 0 ? 'critical' : stock < parLevel * 0.3 ? 'critical' : stock < parLevel * 0.6 ? 'warning' : 'ok'
+                    const isEditingRow = editingInvSku === item.sku
+                    if (isEditingRow) {
+                      return (
+                        <tr key={item.sku} style={{ borderBottom: '1px solid var(--pp-border)', background: 'var(--pp-info-bg)' }}>
+                          <td style={{ padding: '8px 12px' }} colSpan={3}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              <input value={editInvValues.name_en} onChange={(e) => setEditInvValues((v) => ({ ...v, name_en: e.target.value }))}
+                                placeholder="Name EN" style={{ flex: 1, minWidth: '100px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                              <input value={editInvValues.name_vi} onChange={(e) => setEditInvValues((v) => ({ ...v, name_vi: e.target.value }))}
+                                placeholder="Tên VI" style={{ flex: 1, minWidth: '100px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                              <input value={editInvValues.unit} onChange={(e) => setEditInvValues((v) => ({ ...v, unit: e.target.value }))}
+                                placeholder={i18n.language === 'vi' ? 'Đơn vị' : 'Unit'} style={{ width: '70px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                              <input type="number" min="0" value={editInvValues.par_level} onChange={(e) => setEditInvValues((v) => ({ ...v, par_level: e.target.value }))}
+                                placeholder={i18n.language === 'vi' ? 'Mức chuẩn' : 'Par'} style={{ width: '80px', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '13px' }} />
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>—</td>
+                          <td style={{ padding: '8px 12px' }}>—</td>
+                          <td style={{ padding: '8px 12px' }}>—</td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button onClick={() => handleSaveInvEdit(item.sku)} style={{ background: 'var(--pp-primary)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                                {i18n.language === 'vi' ? 'Lưu' : 'Save'}
+                              </button>
+                              <button onClick={() => { setEditingInvSku(null); setInvError(null) }} style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer' }}>✕</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }
                     return (
                       <tr key={item.sku} style={{
                         borderBottom: '1px solid var(--pp-border)',
@@ -500,11 +548,17 @@ export default function BackOfHouse() {
                           </div>
                         </td>
                         <td style={{ padding: '12px' }}>
-                          <button
-                            onClick={() => handleDeleteInventoryItem(item.sku)}
-                            style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
-                            title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
-                          >✕</button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => { setEditingInvSku(item.sku); setEditInvValues({ name_en: item.name_en || '', name_vi: item.name_vi || '', unit: item.unit || '', par_level: String(item.par_level ?? '') }); setInvError(null) }}
+                              style={{ background: 'transparent', border: '1px solid var(--pp-border)', borderRadius: '6px', padding: '3px 8px', fontSize: '12px', cursor: 'pointer', color: 'var(--pp-text-muted)' }}
+                            >{i18n.language === 'vi' ? 'Sửa' : 'Edit'}</button>
+                            <button
+                              onClick={() => handleDeleteInventoryItem(item.sku)}
+                              style={{ background: 'transparent', border: 'none', color: 'var(--pp-danger-text)', cursor: 'pointer', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}
+                              title={i18n.language === 'vi' ? 'Xoá' : 'Delete'}
+                            >✕</button>
+                          </div>
                         </td>
                       </tr>
                     )

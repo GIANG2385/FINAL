@@ -203,6 +203,9 @@ export default function Dashboard() {
   }
   const hasFilters = Object.values(filters).some(v => v !== null)
 
+  // tracks which trend point the cursor is hovering (for chart-level click)
+  const hoveredTrendPointRef = useRef(null)
+
   // ── AI Consultant ─────────────────────────────────────────────────────────
   const [consultantMessages, setConsultantMessages] = useState(null)
   const [briefLoading,       setBriefLoading]       = useState(false)
@@ -537,7 +540,7 @@ export default function Dashboard() {
       {/* ── Row 2: Revenue Trend | Sales by Channel ── */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
 
-        {/* Revenue Trend — click to filter by hour (Today) or day (7D/30D) */}
+        {/* Revenue Trend — hover snaps to nearest point, click filters */}
         <div style={card()} className={`chart-card${hasFilters?' filtered':''}`}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>{lang==='vi'?'Xu hướng doanh thu':'Revenue Trend'}</span>
@@ -546,12 +549,21 @@ export default function Dashboard() {
             )}
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={revenueTrend} margin={{top:8,right:8,left:0,bottom:0}}>
+            <LineChart data={revenueTrend} margin={{top:8,right:8,left:0,bottom:0}}
+              style={{cursor:'crosshair'}}
+              onMouseMove={(state)=>{ hoveredTrendPointRef.current = state?.activePayload?.[0]?.payload ?? null }}
+              onMouseLeave={()=>{ hoveredTrendPointRef.current = null }}
+              onClick={()=>{
+                const p = hoveredTrendPointRef.current
+                if (!p) return
+                if (range==='day' && p.hour!==undefined) toggleFilter('hour', p.hour)
+                else if (p.dateKey) toggleFilter('date', p.dateKey)
+              }}>
               <XAxis dataKey="label" tick={{fontSize:10,fill:'#AAA'}} axisLine={false} tickLine={false} interval="preserveStartEnd"/>
               <YAxis hide/>
-              <Tooltip content={<TooltipVnd/>}/>
-              {filters.hour!==null&&range==='day'&&<ReferenceLine x={`${String(filters.hour).padStart(2,'0')}:00`} stroke="#E8002A" strokeDasharray="4 2"/>}
-              {filters.date&&range!=='day'&&<ReferenceLine x={filters.date} stroke="#E8002A" strokeDasharray="4 2"/>}
+              <Tooltip content={<TooltipVnd/>} cursor={{stroke:'#E8002A',strokeWidth:1,strokeDasharray:'4 2'}}/>
+              {filters.hour!==null&&range==='day'&&<ReferenceLine x={`${String(filters.hour).padStart(2,'0')}:00`} stroke="#E8002A" strokeWidth={2} label={{value:'◀',position:'right',fontSize:10,fill:'#E8002A'}}/>}
+              {filters.date&&range!=='day'&&<ReferenceLine x={filters.date} stroke="#E8002A" strokeWidth={2} label={{value:'◀',position:'right',fontSize:10,fill:'#E8002A'}}/>}
               <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2.5}
                 animationDuration={ANIM_DURATION} animationEasing="ease-out"
                 dot={(props)=>{
@@ -560,18 +572,16 @@ export default function Dashboard() {
                   const isActive = range==='day'
                     ? (filters.hour===null||filters.hour===payload.hour)
                     : (filters.date===null||filters.date===payload.dateKey)
-                  const r = isSelected ? 7 : 4
-                  return <circle key={cx} cx={cx} cy={cy} r={r}
+                  return <circle key={`${cx}-${cy}`} cx={cx} cy={cy}
+                    r={isSelected?7:4}
                     fill={isSelected?'#C80022':isActive?'#E8002A':'#FCA5A5'}
-                    stroke="white" strokeWidth={2} style={{cursor:'pointer',transition:'r 0.2s'}}
-                    onClick={()=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}/>
+                    stroke="white" strokeWidth={isSelected?2.5:1.5}/>
                 }}
-                activeDot={{r:9,fill:'#C80022',stroke:'white',strokeWidth:2.5,cursor:'pointer',
-                  onClick:(_,payload)=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}}/>
+                activeDot={{r:10,fill:'#C80022',stroke:'white',strokeWidth:3}}/>
             </LineChart>
           </ResponsiveContainer>
           <p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>
-            {range==='day'?(lang==='vi'?'Nhấp điểm để lọc theo giờ':'Click a point to filter by hour'):(lang==='vi'?'Nhấp điểm để lọc theo ngày':'Click a point to filter by day')}
+            {lang==='vi'?'Di chuột → nhấp để lọc':'Hover to preview · click to filter'}
           </p>
         </div>
 

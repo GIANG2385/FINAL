@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -16,6 +16,32 @@ const RANGE_DAYS    = { day: 1, week: 7, month: 30 }
 const COLORS = ['#E8002A','#6366F1','#F59E0B','#22C55E','#0EA5E9','#A855F7']
 const COST_COLORS = ['#F59E0B','#6366F1','#16A34A']
 
+// ── Animated number hook (counts up/down on value change) ────────────────
+function useAnimatedValue(target, duration = 480) {
+  const [value, setValue] = useState(target)
+  const rafRef  = useRef(null)
+  const fromRef = useRef(target)
+
+  useEffect(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    const from = fromRef.current
+    const diff  = target - from
+    if (diff === 0) return
+    const t0 = performance.now()
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1)
+      const ease = 1 - Math.pow(1 - p, 3)           // cubic ease-out
+      setValue(from + diff * ease)
+      if (p < 1) rafRef.current = requestAnimationFrame(tick)
+      else fromRef.current = target
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [target, duration])
+
+  return value
+}
+
 function fmt(n) {
   if (n >= 1_000_000_000) return `₫${(n/1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000)     return `₫${(n/1_000_000).toFixed(1)}M`
@@ -26,8 +52,10 @@ function pct(n) { return `${n.toFixed(1)}%` }
 
 const card = (extra = {}) => ({
   background: 'white', border: '1px solid #E5E5EA', borderRadius: '12px',
-  padding: '16px 18px', transition: 'box-shadow 0.15s', ...extra,
+  padding: '16px 18px', transition: 'box-shadow 0.25s, border-color 0.25s', ...extra,
 })
+
+const ANIM_DURATION = 350   // ms for recharts bar/line animations
 
 const KPI_META = [
   { key: 'revenue',   label: ['Revenue','Doanh thu'],   icon: '₫',  color: '#E8002A', filterKey: null },
@@ -99,6 +127,50 @@ function FilterChip({ label, onRemove }) {
     <div style={{ display:'flex', alignItems:'center', gap:'5px', background:'#FFF0F0', border:'1px solid #FCA5A5', borderRadius:'99px', padding:'3px 10px 3px 12px' }}>
       <span style={{ fontSize:'12px', fontWeight:600, color:'#E8002A' }}>{label}</span>
       <button onClick={onRemove} style={{ background:'none', border:'none', cursor:'pointer', color:'#E8002A', fontSize:'14px', lineHeight:1, padding:0 }}>×</button>
+    </div>
+  )
+}
+
+// ── Animated KPI card ────────────────────────────────────────────────────
+function KpiCard({ kpiKey, label, icon, color, rawValue, lang, rangeLabel, hasFilters, isHovered, onEnter, onLeave }) {
+  const animated = useAnimatedValue(rawValue)
+  const isMonetary = ['revenue','foodCost','laborCost','profit'].includes(kpiKey)
+  const display = kpiKey==='margin' ? pct(animated) : isMonetary ? fmt(animated) : Math.round(animated)
+  const negative = kpiKey==='foodCost'||kpiKey==='laborCost'||(kpiKey==='profit'&&rawValue<0)
+  return (
+    <div onMouseEnter={onEnter} onMouseLeave={onLeave} style={{
+      background:'white', borderRadius:'10px', padding:'12px 10px', textAlign:'center',
+      border:`1px solid ${negative?'#FCA5A5':'#E5E5EA'}`,
+      borderTop:`3px solid ${color}`,
+      transform: isHovered?'translateY(-3px) scale(1.02)':'translateY(0) scale(1)',
+      boxShadow: isHovered?`0 8px 24px ${color}33`:'0 1px 3px rgba(0,0,0,0.04)',
+      transition:'transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s',
+      cursor:'default',
+    }}>
+      <div style={{fontSize:'16px',marginBottom:'6px'}}>{icon}</div>
+      <div style={{fontSize:'10px',fontWeight:700,color:'#AAA',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'4px'}}>
+        {lang==='vi'?label[1]:label[0]}
+      </div>
+      <div style={{fontSize:'17px',fontWeight:800,lineHeight:1.1,
+        color:negative?'#DC2626':kpiKey==='profit'&&rawValue>0?'#16A34A':'#1A1A1A',
+        transition:'color 0.3s',
+      }}>{display}</div>
+      <div style={{fontSize:'10px',color:hasFilters?'#E8002A':'#AAA',marginTop:'3px',fontWeight:hasFilters?600:400,transition:'color 0.2s'}}>
+        {rangeLabel}{hasFilters?' · filtered':''}
+      </div>
+    </div>
+  )
+}
+
+function KpiRow({ kpis, lang, rangeLabel, hasFilters, hoveredCard, setHoveredCard }) {
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'10px'}}>
+      {KPI_META.map(({key,label,icon,color})=>(
+        <KpiCard key={key} kpiKey={key} label={label} icon={icon} color={color}
+          rawValue={kpis[key]} lang={lang} rangeLabel={rangeLabel} hasFilters={hasFilters}
+          isHovered={hoveredCard===key}
+          onEnter={()=>setHoveredCard(key)} onLeave={()=>setHoveredCard(null)}/>
+      ))}
     </div>
   )
 }
@@ -370,6 +442,18 @@ export default function Dashboard() {
 
   return (
     <div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:'16px'}}>
+      <style>{`
+        @keyframes fadeSlideIn {
+          from { opacity:0; transform:translateY(6px) }
+          to   { opacity:1; transform:translateY(0)   }
+        }
+        @keyframes scaleBounce {
+          0%,100%{ transform:scale(1)   }
+          50%    { transform:scale(1.4) }
+        }
+        .chart-card { transition: box-shadow 0.25s, border-color 0.25s !important; }
+        .chart-card.filtered { border-color:#FECACA !important; box-shadow:0 0 0 2px #FEE2E2 !important; }
+      `}</style>
 
       {/* ── Header ── */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -446,42 +530,15 @@ export default function Dashboard() {
         )
       })()}
 
-      {/* ── KPI Row (7 cards) — clickable, highlights filtered state ── */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'10px'}}>
-        {KPI_META.map(({key,label,icon,color})=>{
-          const raw = kpis[key]
-          const display = key==='margin'?pct(raw):['revenue','foodCost','laborCost','profit'].includes(key)?fmt(raw):raw
-          const negative = key==='foodCost'||key==='laborCost'||(key==='profit'&&raw<0)
-          const isHovered = hoveredCard===key
-          return (
-            <div key={key}
-              onMouseEnter={()=>setHoveredCard(key)}
-              onMouseLeave={()=>setHoveredCard(null)}
-              style={{
-                background:'white', borderRadius:'10px', padding:'12px 10px', textAlign:'center',
-                border:`1px solid ${negative?'#FCA5A5':'#E5E5EA'}`,
-                borderTop:`3px solid ${color}`,
-                cursor:'default',
-                transform: isHovered?'translateY(-2px)':'none',
-                boxShadow: isHovered?`0 6px 20px ${color}22`:'none',
-                transition:'transform 0.15s, box-shadow 0.15s',
-              }}>
-              <div style={{fontSize:'16px',marginBottom:'6px'}}>{icon}</div>
-              <div style={{fontSize:'10px',fontWeight:700,color:'#AAA',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'4px'}}>
-                {lang==='vi'?label[1]:label[0]}
-              </div>
-              <div style={{fontSize:'17px',fontWeight:800,color:negative?'#DC2626':key==='profit'&&raw>0?'#16A34A':'#1A1A1A',lineHeight:1.1,transition:'color 0.2s'}}>{display}</div>
-              <div style={{fontSize:'10px',color:'#AAA',marginTop:'3px'}}>{rangeLabel}{hasFilters?' · filtered':''}</div>
-            </div>
-          )
-        })}
-      </div>
+      {/* ── KPI Row (7 cards) — animated number count-up on filter change ── */}
+      <KpiRow kpis={kpis} lang={lang} rangeLabel={rangeLabel} hasFilters={hasFilters}
+        hoveredCard={hoveredCard} setHoveredCard={setHoveredCard}/>
 
       {/* ── Row 2: Revenue Trend | Sales by Channel ── */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
 
         {/* Revenue Trend — click to filter by hour (Today) or day (7D/30D) */}
-        <div style={card()}>
+        <div style={card()} className={`chart-card${hasFilters?' filtered':''}`}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>{lang==='vi'?'Xu hướng doanh thu':'Revenue Trend'}</span>
             {(filters.hour!==null||filters.date)&&(
@@ -496,16 +553,20 @@ export default function Dashboard() {
               {filters.hour!==null&&range==='day'&&<ReferenceLine x={`${String(filters.hour).padStart(2,'0')}:00`} stroke="#E8002A" strokeDasharray="4 2"/>}
               {filters.date&&range!=='day'&&<ReferenceLine x={filters.date} stroke="#E8002A" strokeDasharray="4 2"/>}
               <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2.5}
+                animationDuration={ANIM_DURATION} animationEasing="ease-out"
                 dot={(props)=>{
                   const { cx,cy,payload } = props
+                  const isSelected = range==='day' ? filters.hour===payload.hour : filters.date===payload.dateKey
                   const isActive = range==='day'
                     ? (filters.hour===null||filters.hour===payload.hour)
                     : (filters.date===null||filters.date===payload.dateKey)
-                  return <circle key={cx} cx={cx} cy={cy} r={5} fill={isActive?'#E8002A':'#FCA5A5'}
-                    stroke="white" strokeWidth={2} style={{cursor:'pointer'}}
+                  const r = isSelected ? 7 : 4
+                  return <circle key={cx} cx={cx} cy={cy} r={r}
+                    fill={isSelected?'#C80022':isActive?'#E8002A':'#FCA5A5'}
+                    stroke="white" strokeWidth={2} style={{cursor:'pointer',transition:'r 0.2s'}}
                     onClick={()=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}/>
                 }}
-                activeDot={{r:8,fill:'#E8002A',stroke:'white',strokeWidth:2,cursor:'pointer',
+                activeDot={{r:9,fill:'#C80022',stroke:'white',strokeWidth:2.5,cursor:'pointer',
                   onClick:(_,payload)=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}}/>
             </LineChart>
           </ResponsiveContainer>
@@ -515,7 +576,7 @@ export default function Dashboard() {
         </div>
 
         {/* Sales by Channel — click bar to cross-filter */}
-        <div style={card()}>
+        <div style={card()} className={`chart-card${hasFilters?' filtered':''}`}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>{lang==='vi'?'Doanh số theo kênh':'Sales by Channel'}</span>
             {filters.channel&&<button onClick={()=>setFilters(p=>({...p,channel:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>}
@@ -526,11 +587,14 @@ export default function Dashboard() {
               <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#555'}} axisLine={false} tickLine={false} width={70}/>
               <Tooltip formatter={(v,n,p)=>[`${v} orders`,p.payload.name]}/>
               <Bar dataKey="value" radius={[0,4,4,0]} cursor="pointer"
+                animationDuration={ANIM_DURATION} animationEasing="ease-out"
                 onClick={(data)=>toggleFilter('channel', data.key)}>
-                {channelData.map((d,i)=>(
-                  <Cell key={i} fill={COLORS[i%COLORS.length]}
-                    opacity={filters.channel&&filters.channel!==d.key?0.35:1}/>
-                ))}
+                {channelData.map((d,i)=>{
+                  const isSelected = filters.channel===d.key
+                  return <Cell key={i} fill={COLORS[i%COLORS.length]}
+                    opacity={filters.channel&&!isSelected?0.25:1}
+                    stroke={isSelected?'#1A1A1A':undefined} strokeWidth={isSelected?1.5:0}/>
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -542,7 +606,7 @@ export default function Dashboard() {
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
 
         {/* Hourly/Daily column — click to filter by hour (Today) or day (7D/30D) */}
-        <div style={card()}>
+        <div style={card()} className={`chart-card${hasFilters?' filtered':''}`}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
             <span style={{fontWeight:700,fontSize:'13px',color:'#1A1A1A'}}>
               {range==='day'?(lang==='vi'?'Doanh thu theo giờ':'Hourly Sales'):(lang==='vi'?'Doanh thu theo ngày':'Daily Revenue')}
@@ -557,12 +621,15 @@ export default function Dashboard() {
               <YAxis hide/>
               <Tooltip content={<TooltipVnd/>}/>
               <Bar dataKey="revenue" radius={[3,3,0,0]} cursor="pointer"
+                animationDuration={ANIM_DURATION} animationEasing="ease-out"
                 onClick={(data)=>{ if(range==='day') toggleFilter('hour',data.hour); else toggleFilter('date',data.dateKey) }}>
                 {hourlyData.map((d,i)=>{
                   const active = range==='day'
                     ? (filters.hour===null || filters.hour===d.hour)
                     : (filters.date===null || filters.date===d.dateKey)
-                  return <Cell key={i} fill="#E8002A" opacity={active?1:0.3}/>
+                  const isSelected = range==='day' ? filters.hour===d.hour : filters.date===d.dateKey
+                  return <Cell key={i} fill={isSelected?'#C80022':'#E8002A'}
+                    opacity={active?1:0.25} stroke={isSelected?'#fff':undefined} strokeWidth={isSelected?1:0}/>
                 })}
               </Bar>
             </BarChart>
@@ -587,11 +654,14 @@ export default function Dashboard() {
                   <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#555'}} axisLine={false} tickLine={false} width={100}/>
                   <Tooltip formatter={(v)=>[`${v} ${lang==='vi'?'phần bán':'sold'}`,'']}/>
                   <Bar dataKey="qty" radius={[0,4,4,0]} cursor="pointer"
+                    animationDuration={ANIM_DURATION} animationEasing="ease-out"
                     onClick={(data)=>toggleFilter('item', data.name)}>
-                    {topItems.map((d,i)=>(
-                      <Cell key={i} fill={COLORS[i%COLORS.length]}
-                        opacity={filters.item&&filters.item!==d.name?0.3:1}/>
-                    ))}
+                    {topItems.map((d,i)=>{
+                      const isSelected = filters.item===d.name
+                      return <Cell key={i} fill={COLORS[i%COLORS.length]}
+                        opacity={filters.item&&!isSelected?0.25:1}
+                        stroke={isSelected?'#1A1A1A':undefined} strokeWidth={isSelected?1.5:0}/>
+                    })}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -648,12 +718,17 @@ export default function Dashboard() {
               <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
                 <ResponsiveContainer width={140} height={140}>
                   <PieChart>
-                    <Pie data={paymentData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3} cursor="pointer"
+                    <Pie data={paymentData} dataKey="value" cx="50%" cy="50%"
+                      innerRadius={40} outerRadius={60} paddingAngle={3} cursor="pointer"
+                      animationDuration={ANIM_DURATION} animationEasing="ease-out"
+                      activeIndex={paymentData.findIndex(d=>d.name===filters.payment)}
+                      activeShape={{outerRadius:68}}
                       onClick={(data)=>toggleFilter('payment', data.name)}>
-                      {paymentData.map((d,i)=>(
-                        <Cell key={i} fill={COLORS[i%COLORS.length]}
-                          opacity={filters.payment&&filters.payment!==d.name?0.3:1}/>
-                      ))}
+                      {paymentData.map((d,i)=>{
+                        const isSelected = filters.payment===d.name
+                        return <Cell key={i} fill={COLORS[i%COLORS.length]}
+                          opacity={filters.payment&&!isSelected?0.25:1}/>
+                      })}
                     </Pie>
                     <Tooltip formatter={(v,n)=>[v,n]}/>
                   </PieChart>
@@ -693,11 +768,14 @@ export default function Dashboard() {
           <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
             {recentOrders.length===0
               ? <p style={{fontSize:'12px',color:'#AAA',margin:0}}>{lang==='vi'?'Chưa có đơn':'No orders'}</p>
-              : recentOrders.map(o=>{
+              : recentOrders.map((o,idx)=>{
                 const statusColor=o.status==='served'?'#16A34A':o.status==='cancelled'?'#DC2626':'#F59E0B'
                 return (
                   <div key={o.id} onClick={()=>setSelectedOrder(o)}
-                    style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 8px',borderRadius:'8px',cursor:'pointer',transition:'background 0.1s'}}
+                    style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 8px',borderRadius:'8px',cursor:'pointer',
+                      transition:'background 0.15s, opacity 0.25s, transform 0.25s',
+                      animation:`fadeSlideIn 0.25s ${idx*30}ms both`,
+                    }}
                     onMouseEnter={e=>e.currentTarget.style.background='#F9F9F9'}
                     onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                     <div>

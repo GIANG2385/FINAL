@@ -1,10 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import ReactMarkdown from 'react-markdown'
 import { auth } from '../services/firebase'
 import supabase from '../services/supabase'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+
+const mdComponents = {
+  p:      ({ children }) => <p style={{ margin: '0 0 8px', lineHeight: 1.6 }}>{children}</p>,
+  strong: ({ children }) => <strong style={{ fontWeight: 700, color: '#1A1A1A' }}>{children}</strong>,
+  em:     ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
+  h1:     ({ children }) => <h2 style={{ fontSize: '15px', fontWeight: 800, margin: '12px 0 4px', color: '#1A1A1A' }}>{children}</h2>,
+  h2:     ({ children }) => <h3 style={{ fontSize: '14px', fontWeight: 700, margin: '10px 0 4px', color: '#1A1A1A' }}>{children}</h3>,
+  h3:     ({ children }) => <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '8px 0 4px', color: '#333' }}>{children}</h4>,
+  ul:     ({ children }) => <ul style={{ margin: '4px 0 8px', paddingLeft: '18px' }}>{children}</ul>,
+  ol:     ({ children }) => <ol style={{ margin: '4px 0 8px', paddingLeft: '18px' }}>{children}</ol>,
+  li:     ({ children }) => <li style={{ margin: '2px 0', lineHeight: 1.5 }}>{children}</li>,
+  code:   ({ children }) => <code style={{ background: '#F2F2F7', borderRadius: '4px', padding: '1px 5px', fontSize: '12px', fontFamily: 'monospace' }}>{children}</code>,
+  pre:    ({ children }) => <pre style={{ background: '#F2F2F7', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', overflowX: 'auto', margin: '6px 0' }}>{children}</pre>,
+  hr:     () => <hr style={{ border: 'none', borderTop: '1px solid #E5E5EA', margin: '10px 0' }}/>,
+}
 
 function formatTime(value) {
   if (!value) return ''
@@ -180,12 +196,15 @@ export default function Consultant() {
                   background: 'var(--pp-primary)', color: 'white',
                   borderRadius: '18px 18px 4px 18px', fontSize: '14px', lineHeight: 1.5,
                 } : {
-                  maxWidth: '520px', padding: '10px 14px',
+                  maxWidth: '560px', padding: '12px 16px',
                   background: 'white', color: 'var(--pp-text)',
                   border: '1px solid var(--pp-border)',
-                  borderRadius: '4px 18px 18px 18px', fontSize: '14px', lineHeight: 1.6,
+                  borderRadius: '4px 18px 18px 18px', fontSize: '14px',
                 }}>
-                  {m.content}
+                  {m.role === 'user'
+                    ? m.content
+                    : <ReactMarkdown components={mdComponents}>{m.content}</ReactMarkdown>
+                  }
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
                   <span style={{ fontSize: '11px', color: 'var(--pp-text-hint)' }}>{formatTime(m.created_at)}</span>

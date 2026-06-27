@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import ReactMarkdown from 'react-markdown'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, ReferenceLine,
@@ -522,7 +523,14 @@ export default function Dashboard() {
               {consultantMessages===null||(isGenerating&&!lastAssistant)
                 ? <p style={{margin:0,fontSize:'14px',color:'rgba(255,255,255,0.4)',fontStyle:'italic'}}>{lang==='vi'?'Đang kết nối dữ liệu…':'Connecting to live data…'}</p>
                 : lastAssistant
-                  ? <p style={{margin:0,fontSize:'14px',color:'rgba(255,255,255,0.92)',lineHeight:1.7}}>{lastAssistant.content}</p>
+                  ? <div style={{margin:0,fontSize:'14px',color:'rgba(255,255,255,0.92)',lineHeight:1.7}}>
+                      <ReactMarkdown components={{
+                        p:      ({children})=><p style={{margin:'0 0 6px',lineHeight:1.7,color:'rgba(255,255,255,0.92)'}}>{children}</p>,
+                        strong: ({children})=><strong style={{fontWeight:700,color:'white'}}>{children}</strong>,
+                        ul:     ({children})=><ul style={{margin:'4px 0',paddingLeft:'16px'}}>{children}</ul>,
+                        li:     ({children})=><li style={{margin:'2px 0',color:'rgba(255,255,255,0.85)'}}>{children}</li>,
+                      }}>{lastAssistant.content}</ReactMarkdown>
+                    </div>
                   : <p style={{margin:0,fontSize:'14px',color:'rgba(255,255,255,0.45)',fontStyle:'italic'}}>{lang==='vi'?'Chưa có dữ liệu.':'No data yet.'}</p>
               }
             </div>

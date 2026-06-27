@@ -489,19 +489,24 @@ export default function Dashboard() {
             )}
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={revenueTrend} margin={{top:4,right:4,left:0,bottom:0}}
-              onClick={({activeLabel,activePayload})=>{
-                if (!activeLabel||!activePayload?.[0]) return
-                if (range==='day') { const h=parseInt(activeLabel); if(!isNaN(h)) toggleFilter('hour',h) }
-                else toggleFilter('date', activePayload[0].payload.dateKey)
-              }}>
+            <LineChart data={revenueTrend} margin={{top:8,right:8,left:0,bottom:0}}>
               <XAxis dataKey="label" tick={{fontSize:10,fill:'#AAA'}} axisLine={false} tickLine={false} interval="preserveStartEnd"/>
               <YAxis hide/>
               <Tooltip content={<TooltipVnd/>}/>
               {filters.hour!==null&&range==='day'&&<ReferenceLine x={`${String(filters.hour).padStart(2,'0')}:00`} stroke="#E8002A" strokeDasharray="4 2"/>}
               {filters.date&&range!=='day'&&<ReferenceLine x={filters.date} stroke="#E8002A" strokeDasharray="4 2"/>}
-              <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2}
-                dot={{r:3,fill:'#E8002A',cursor:'pointer'}} activeDot={{r:6,cursor:'pointer'}}/>
+              <Line type="monotone" dataKey="revenue" stroke="#E8002A" strokeWidth={2.5}
+                dot={(props)=>{
+                  const { cx,cy,payload } = props
+                  const isActive = range==='day'
+                    ? (filters.hour===null||filters.hour===payload.hour)
+                    : (filters.date===null||filters.date===payload.dateKey)
+                  return <circle key={cx} cx={cx} cy={cy} r={5} fill={isActive?'#E8002A':'#FCA5A5'}
+                    stroke="white" strokeWidth={2} style={{cursor:'pointer'}}
+                    onClick={()=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}/>
+                }}
+                activeDot={{r:8,fill:'#E8002A',stroke:'white',strokeWidth:2,cursor:'pointer',
+                  onClick:(_,payload)=>{ if(range==='day'&&payload.hour!==undefined) toggleFilter('hour',payload.hour); else if(payload.dateKey) toggleFilter('date',payload.dateKey) }}}/>
             </LineChart>
           </ResponsiveContainer>
           <p style={{margin:'4px 0 0',fontSize:'10px',color:'#AAA',textAlign:'center'}}>
@@ -516,12 +521,12 @@ export default function Dashboard() {
             {filters.channel&&<button onClick={()=>setFilters(p=>({...p,channel:null}))} style={{fontSize:'11px',color:'#E8002A',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>×{lang==='vi'?'xóa':'clear'}</button>}
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <BarChart layout="vertical" data={channelData} margin={{top:0,right:16,left:0,bottom:0}}
-              onClick={({activePayload})=>{ if(activePayload?.[0]) toggleFilter('channel',activePayload[0].payload.key) }}>
+            <BarChart layout="vertical" data={channelData} margin={{top:0,right:16,left:0,bottom:0}}>
               <XAxis type="number" hide/>
               <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#555'}} axisLine={false} tickLine={false} width={70}/>
               <Tooltip formatter={(v,n,p)=>[`${v} orders`,p.payload.name]}/>
-              <Bar dataKey="value" radius={[0,4,4,0]} cursor="pointer">
+              <Bar dataKey="value" radius={[0,4,4,0]} cursor="pointer"
+                onClick={(data)=>toggleFilter('channel', data.key)}>
                 {channelData.map((d,i)=>(
                   <Cell key={i} fill={COLORS[i%COLORS.length]}
                     opacity={filters.channel&&filters.channel!==d.key?0.35:1}/>
@@ -547,16 +552,12 @@ export default function Dashboard() {
             )}
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={hourlyData} margin={{top:4,right:4,left:0,bottom:0}}
-              onClick={({activePayload})=>{
-                if (!activePayload?.[0]) return
-                if (range==='day') toggleFilter('hour', activePayload[0].payload.hour)
-                else toggleFilter('date', activePayload[0].payload.dateKey)
-              }}>
+            <BarChart data={hourlyData} margin={{top:4,right:4,left:0,bottom:0}}>
               <XAxis dataKey="label" tick={{fontSize:9,fill:'#AAA'}} axisLine={false} tickLine={false} interval={range==='day'?3:'preserveStartEnd'}/>
               <YAxis hide/>
               <Tooltip content={<TooltipVnd/>}/>
-              <Bar dataKey="revenue" radius={[3,3,0,0]} cursor="pointer">
+              <Bar dataKey="revenue" radius={[3,3,0,0]} cursor="pointer"
+                onClick={(data)=>{ if(range==='day') toggleFilter('hour',data.hour); else toggleFilter('date',data.dateKey) }}>
                 {hourlyData.map((d,i)=>{
                   const active = range==='day'
                     ? (filters.hour===null || filters.hour===d.hour)
@@ -581,12 +582,12 @@ export default function Dashboard() {
             ? <p style={{fontSize:'13px',color:'#AAA',margin:0}}>{lang==='vi'?'Chưa có dữ liệu':'No data yet'}</p>
             : <>
               <ResponsiveContainer width="100%" height={160}>
-                <BarChart layout="vertical" data={topItems} margin={{top:0,right:16,left:0,bottom:0}}
-                  onClick={({activePayload})=>{ if(activePayload?.[0]) toggleFilter('item',activePayload[0].payload.name) }}>
+                <BarChart layout="vertical" data={topItems} margin={{top:0,right:16,left:0,bottom:0}}>
                   <XAxis type="number" hide/>
                   <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#555'}} axisLine={false} tickLine={false} width={100}/>
                   <Tooltip formatter={(v)=>[`${v} ${lang==='vi'?'phần bán':'sold'}`,'']}/>
-                  <Bar dataKey="qty" radius={[0,4,4,0]} cursor="pointer">
+                  <Bar dataKey="qty" radius={[0,4,4,0]} cursor="pointer"
+                    onClick={(data)=>toggleFilter('item', data.name)}>
                     {topItems.map((d,i)=>(
                       <Cell key={i} fill={COLORS[i%COLORS.length]}
                         opacity={filters.item&&filters.item!==d.name?0.3:1}/>
@@ -646,8 +647,9 @@ export default function Dashboard() {
             : <>
               <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
                 <ResponsiveContainer width={140} height={140}>
-                  <PieChart onClick={({activePayload})=>{ if(activePayload?.[0]) toggleFilter('payment',activePayload[0].payload.name) }}>
-                    <Pie data={paymentData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3} cursor="pointer">
+                  <PieChart>
+                    <Pie data={paymentData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3} cursor="pointer"
+                      onClick={(data)=>toggleFilter('payment', data.name)}>
                       {paymentData.map((d,i)=>(
                         <Cell key={i} fill={COLORS[i%COLORS.length]}
                           opacity={filters.payment&&filters.payment!==d.name?0.3:1}/>

@@ -76,7 +76,8 @@ export default function FrontOfHouse() {
   const [spikeAlert, setSpikeAlert] = useState(false)
   const [vnpayModal, setVnpayModal] = useState(null) // { orderId, amount, paymentUrl }
   // Reservation form
-  const [form, setForm] = useState({ name: '', partySize: 2, time: '18:00' })
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState({ name: '', partySize: 2, date: todayStr, time: '18:00' })
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState(null)
   const [editingNoteId, setEditingNoteId] = useState(null)
@@ -215,12 +216,16 @@ export default function FrontOfHouse() {
         if (!resTime) return
 
         const inWindow = now >= resTime - TEN_MIN && now <= resTime + TEN_MIN
+        const pastWindow = now > resTime + TEN_MIN
         const table = tables.find((tb) => tb.table_id === r.table_id)
         if (!table) return
 
+        // Block table 10 min before reservation until 10 min after
         if (inWindow && table.status === 'open') {
           supabase.from('tables').update({ status: 'reserved' }).eq('table_id', r.table_id).then(() => {}).catch(console.error)
-        } else if (!inWindow && now > resTime + TEN_MIN && table.status === 'reserved') {
+        }
+        // Release table after the ±10 min window (unless it became 'dining' or 'cleanup')
+        if (pastWindow && table.status === 'reserved') {
           supabase.from('tables').update({ status: 'open' }).eq('table_id', r.table_id).then(() => {}).catch(console.error)
         }
       })
@@ -1058,8 +1063,15 @@ export default function FrontOfHouse() {
                   onChange={(e) => setForm((f) => ({ ...f, partySize: Number(e.target.value) }))}
                 />
                 <input
-                  style={{ width: '90px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }}
-                  placeholder="HH:MM"
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  style={{ border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }}
+                  value={form.date}
+                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                />
+                <input
+                  type="time"
+                  style={{ width: '110px', border: '1px solid var(--pp-border)', borderRadius: '8px', padding: '8px', fontSize: '13px' }}
                   value={form.time}
                   onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
                 />
@@ -1070,20 +1082,43 @@ export default function FrontOfHouse() {
                     setFormError(i18n.language === 'vi' ? 'Vui lòng nhập tên khách' : 'Please enter guest name')
                     return
                   }
+                  if (!form.date || !form.time) {
+                    setFormError(i18n.language === 'vi' ? 'Vui lòng chọn ngày và giờ' : 'Please pick a date and time')
+                    return
+                  }
                   try {
                     const [hh, mm] = form.time.split(':').map(Number)
-                    const resTime = new Date()
+                    const resTime = new Date(form.date)
                     resTime.setHours(hh, mm, 0, 0)
+
+                    // Auto-assign: find open table not already taken by another reservation
+                    // in the ±10 min window around the same time
+                    const TEN_MIN = 10 * 60 * 1000
+                    const busyTableIds = new Set(
+                      (reservations || [])
+                        .filter(r => {
+                          if (r.status !== 'confirmed' || !r.table_id) return false
+                          const rt = toDate(r.reservation_time)?.getTime()
+                          if (!rt) return false
+                          return Math.abs(rt - resTime.getTime()) < 2 * TEN_MIN
+                        })
+                        .map(r => r.table_id)
+                    )
+                    const assignedTable = (tables || [])
+                      .filter(tb => tb.status === 'open' && !busyTableIds.has(tb.table_id))
+                      .sort((a, b) => (a.capacity || 0) - (b.capacity || 0))
+                      .find(tb => (tb.capacity || 4) >= form.partySize)
+
                     await supabase.from('reservations').insert({
                       reservation_id: crypto.randomUUID(),
                       guest_name: form.name.trim(),
                       party_size: form.partySize,
                       reservation_time: resTime.toISOString(),
                       status: 'confirmed',
-                      table_id: null,
+                      table_id: assignedTable?.table_id ?? null,
                       note: null,
                     })
-                    setForm({ name: '', partySize: 2, time: '18:00' })
+                    setForm({ name: '', partySize: 2, date: new Date().toISOString().slice(0, 10), time: '18:00' })
                     setFormOpen(false)
                     setFormError(null)
                   } catch (e) {
